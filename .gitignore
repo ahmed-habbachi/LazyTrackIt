@@ -1,0 +1,31 @@
+# Build artifacts
+/lazytrackit
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+__debug_bin*
+
+# Go tooling
+/vendor/
+go.work
+go.work.sum
+
+# Editors / IDEs
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Local env / secrets (LazyTrackIt's own config lives outside the repo,
+# under $XDG_CONFIG_HOME/lazytrackit, but ignore a stray local copy anyway)
+.env
+/config.yaml
+/*.local.yaml

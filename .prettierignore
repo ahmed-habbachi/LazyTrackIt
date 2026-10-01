@@ -1,0 +1,7 @@
+# Prettier has no Go parser; gofmt/go vet own these instead.
+*.go
+go.mod
+go.sum
+
+/bin/
+/dist/
