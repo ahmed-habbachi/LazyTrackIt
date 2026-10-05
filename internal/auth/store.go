@@ -4,13 +4,22 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // StoreDir returns the directory tokens are cached in, honoring
-// XDG_STATE_HOME when set.
+// XDG_STATE_HOME when set, and otherwise defaulting to the platform's
+// normal place for local (non-roaming) app state: %LOCALAPPDATA% on
+// Windows (cached tokens are machine-local, unlike hand-edited config), or
+// ~/.local/state elsewhere.
 func StoreDir() (string, error) {
 	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
 		return filepath.Join(xdg, "lazytrackit", "tokens"), nil
+	}
+	if runtime.GOOS == "windows" {
+		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+			return filepath.Join(localAppData, "lazytrackit", "tokens"), nil
+		}
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

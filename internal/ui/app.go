@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -24,6 +25,7 @@ const (
 	screenList
 	screenForm
 	screenConfirmDelete
+	screenProviderPicker
 	screenError
 )
 
@@ -31,8 +33,12 @@ const requestTimeout = 20 * time.Second
 
 // Model is the root Bubble Tea model for LazyTrackIt.
 type Model struct {
-	prov   provider.Provider
-	events chan tea.Msg
+	providers          map[string]provider.Provider
+	providerNames      []string // sorted, for stable display order
+	activeProviderName string
+	providerCursor     int // selection while screenProviderPicker is shown
+	prov               provider.Provider
+	events             chan tea.Msg
 
 	screen  screen
 	spinner spinner.Model
@@ -59,8 +65,10 @@ type Model struct {
 	status string
 }
 
-// New builds the initial Model for the given provider.
-func New(prov provider.Provider) Model {
+// New builds the initial Model. providers holds every configured provider
+// keyed by name, names is their stable display order, and active is which
+// of them to start with.
+func New(providers map[string]provider.Provider, names []string, active string) Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
@@ -84,16 +92,19 @@ func New(prov provider.Provider) Model {
 
 	// A missing or unreadable state file just means no remembered
 	// defaults yet; it's not worth failing startup over.
-	lastDefaults, _ := config.LoadLastEntryDefaults(prov.Name())
+	lastDefaults, _ := config.LoadLastEntryDefaults(active)
 
 	return Model{
-		prov:         prov,
-		events:       make(chan tea.Msg, 4),
-		screen:       screenLoading,
-		spinner:      s,
-		table:        t,
-		weekStart:    startOfWeek(time.Now()),
-		lastDefaults: lastDefaults,
+		providers:          providers,
+		providerNames:      names,
+		activeProviderName: active,
+		prov:               providers[active],
+		events:             make(chan tea.Msg, 4),
+		screen:             screenLoading,
+		spinner:            s,
+		table:              t,
+		weekStart:          startOfWeek(time.Now()),
+		lastDefaults:       lastDefaults,
 	}
 }
 
@@ -368,8 +379,65 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, nil
+
+	case screenProviderPicker:
+		return m.handleProviderPickerKey(msg)
 	}
 
+	return m, nil
+}
+
+func (m Model) handleProviderPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.providerCursor > 0 {
+			m.providerCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.providerCursor < len(m.providerNames)-1 {
+			m.providerCursor++
+		}
+		return m, nil
+	case "enter":
+		name := m.providerNames[m.providerCursor]
+		if name == m.activeProviderName {
+			m.screen = screenList
+			return m, nil
+		}
+		return m.switchProvider(name)
+	case "esc", "q":
+		m.screen = screenList
+		return m, nil
+	}
+	return m, nil
+}
+
+// switchProvider makes name the active provider, resets the state that's
+// specific to whichever provider was active before, remembers the choice
+// for next startup, and re-runs bootstrap (login if needed, then load
+// member/projects/entries) against the new provider.
+func (m Model) switchProvider(name string) (tea.Model, tea.Cmd) {
+	m.activeProviderName = name
+	m.prov = m.providers[name]
+	m.hasMember = false
+	m.member = provider.Member{}
+	m.projects = nil
+	m.entries = nil
+	m.form = nil
+	m.deleteTarget = nil
+	m.err = nil
+	m.status = ""
+	m.loginPrompt = nil
+	// A missing or unreadable state file just means no remembered defaults
+	// yet for this provider; it's not worth surfacing an error over.
+	m.lastDefaults, _ = config.LoadLastEntryDefaults(name)
+	// Best-effort: if this fails, the only consequence is falling back to
+	// active_provider from the config file on the next run.
+	_ = config.SaveLastProvider(name)
+
+	m.screen = screenLoading
+	go m.bootstrap()
 	return m, nil
 }
 
@@ -423,11 +491,28 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenLoading
 		go m.loadEntries(m.weekStart)
 		return m, nil
+	case "p":
+		if len(m.providerNames) < 2 {
+			m.status = "Only one provider configured."
+			return m, nil
+		}
+		m.providerCursor = indexOf(m.providerNames, m.activeProviderName)
+		m.screen = screenProviderPicker
+		return m, nil
 	}
 
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
+}
+
+func indexOf(names []string, name string) int {
+	for i, n := range names {
+		if n == name {
+			return i
+		}
+	}
+	return 0
 }
 
 func (m *Model) selectedEntry() *provider.TimeEntry {
@@ -451,9 +536,31 @@ func (m Model) View() string {
 		return m.viewForm()
 	case screenConfirmDelete:
 		return m.viewConfirmDelete()
+	case screenProviderPicker:
+		return m.viewProviderPicker()
 	default:
 		return m.viewList()
 	}
+}
+
+func (m Model) viewProviderPicker() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Switch provider") + "\n\n")
+	for i, name := range m.providerNames {
+		marker := "  "
+		style := subtleStyle
+		if i == m.providerCursor {
+			marker = "▸ "
+			style = focusedFieldStyle
+		}
+		label := name
+		if name == m.activeProviderName {
+			label += " (active)"
+		}
+		b.WriteString(marker + style.Render(label) + "\n")
+	}
+	b.WriteString("\n" + helpStyle.Render("[enter] select  [esc] cancel"))
+	return "\n" + boxStyle.Render(b.String()) + "\n"
 }
 
 func (m Model) viewError() string {

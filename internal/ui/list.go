@@ -137,6 +137,9 @@ func (m Model) viewList() string {
 	}
 
 	help := "[n] new  [e] edit  [x/del] delete  [r] refresh  [[/]] week  [t] today  [q] quit"
+	if len(m.providerNames) > 1 {
+		help = "[n] new  [e] edit  [x/del] delete  [r] refresh  [[/]] week  [t] today  [p] providers  [q] quit"
+	}
 	b.WriteString("\n" + helpStyle.Render(help))
 
 	return sectionStyle.Render(b.String())

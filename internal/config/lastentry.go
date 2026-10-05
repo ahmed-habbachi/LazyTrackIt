@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // LastEntryDefaults remembers the project and tags most recently used to
@@ -16,10 +17,17 @@ type LastEntryDefaults struct {
 }
 
 // lastEntryStateDir returns the directory LazyTrackIt stores per-run UI
-// state in, honoring XDG_STATE_HOME when set.
+// state in, honoring XDG_STATE_HOME when set, and otherwise defaulting to
+// the platform's normal place for local (non-roaming) app state: %LOCALAPPDATA%
+// on Windows, or ~/.local/state elsewhere.
 func lastEntryStateDir() (string, error) {
 	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
 		return filepath.Join(xdg, "lazytrackit"), nil
+	}
+	if runtime.GOOS == "windows" {
+		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+			return filepath.Join(localAppData, "lazytrackit"), nil
+		}
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -34,6 +42,56 @@ func lastEntryPath(providerName string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "last-entry-"+providerName+".json"), nil
+}
+
+type lastProviderDto struct {
+	Name string `json:"name"`
+}
+
+func lastProviderPath() (string, error) {
+	dir, err := lastEntryStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "last-provider.json"), nil
+}
+
+// LoadLastProvider returns the name of the provider most recently active, or
+// "" if none has been recorded yet (e.g. first run).
+func LoadLastProvider() (string, error) {
+	path, err := lastProviderPath()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	var d lastProviderDto
+	if err := json.Unmarshal(data, &d); err != nil {
+		return "", err
+	}
+	return d.Name, nil
+}
+
+// SaveLastProvider remembers name as the provider to default to on next
+// startup, creating the state directory as needed.
+func SaveLastProvider(name string) error {
+	path, err := lastProviderPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(lastProviderDto{Name: name}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }
 
 // LoadLastEntryDefaults reads the last-used project/tags for a provider. A

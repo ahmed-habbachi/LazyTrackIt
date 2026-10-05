@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"gopkg.in/yaml.v3"
 )
@@ -26,10 +27,18 @@ type Config struct {
 }
 
 // Dir returns the directory LazyTrackIt stores its config in, honoring
-// XDG_CONFIG_HOME when set.
+// XDG_CONFIG_HOME when set, and otherwise defaulting to the platform's
+// normal place for user config: %APPDATA% on Windows (it roams with the
+// user's profile, which is where hand-edited settings belong), or
+// ~/.config elsewhere.
 func Dir() (string, error) {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "lazytrackit"), nil
+	}
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			return filepath.Join(appData, "lazytrackit"), nil
+		}
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -48,7 +57,9 @@ func Path() (string, error) {
 }
 
 const exampleConfig = `# LazyTrackIt configuration
-# Pick which configured provider is active.
+# Pick which configured provider to start with. Once you've switched
+# providers from within the app (press 'p'), that choice is remembered
+# locally and takes precedence over this value on future runs.
 active_provider: trackit
 
 providers:
@@ -67,6 +78,38 @@ providers:
         - openid
         - profile
         - offline_access
+
+  # Add as many more providers as you like, each under its own key, and
+  # press 'p' in the app to switch between them. For example, a second
+  # TrackIt account or environment:
+  #
+  # trackit-other:
+  #   type: trackit
+  #   base_url: https://trackit.case-tunisia.com
+  #   auth:
+  #     issuer: https://auth2.case-tunisia.com/realms/case
+  #     client_id: lazytrackit
+  #     client_secret: ""
+  #     scopes: [openid, profile, offline_access]
+  #
+  # Or a Toggl Track account. Unlike TrackIt there's no login flow: generate
+  # an API token from your Toggl profile page and paste it here.
+  #
+  # toggl:
+  #   type: toggl
+  #   base_url: https://api.track.toggl.com  # optional, this is the default
+  #   auth:
+  #     api_token: <your Toggl API token>
+  #
+  # Or a customer's Zeiterfassung ("week booking") deployment. Like Toggl,
+  # there's no device-code flow: mint an API token (POST /api/v1/me/api-tokens,
+  # or whatever page the deployment exposes for that) and paste it here.
+  #
+  # weekbooking:
+  #   type: weekbooking
+  #   base_url: https://zeiterfassung.example.com
+  #   auth:
+  #     api_token: <your week-booking API token>
 `
 
 // WriteExample writes a commented example config file to Path(), creating
@@ -105,8 +148,20 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-// Active returns the currently selected provider's configuration.
-func (c *Config) Active() (string, ProviderConfig, error) {
+// ResolveActiveProvider picks which configured provider to start with:
+// whichever was last used (remembered locally across runs via
+// SaveLastProvider), falling back to active_provider from the config file if
+// nothing's been remembered yet, or if the remembered provider has since
+// been removed from the config.
+func (c *Config) ResolveActiveProvider() (string, ProviderConfig, error) {
+	if len(c.Providers) == 0 {
+		return "", ProviderConfig{}, fmt.Errorf("no providers configured")
+	}
+	if last, err := LoadLastProvider(); err == nil && last != "" {
+		if p, ok := c.Providers[last]; ok {
+			return last, p, nil
+		}
+	}
 	if c.ActiveProvider == "" {
 		return "", ProviderConfig{}, fmt.Errorf("active_provider is not set in config")
 	}

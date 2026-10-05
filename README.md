@@ -1,8 +1,10 @@
 # LazyTrackIt
 
 A terminal UI for time tracking, built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
-Backends are pluggable behind `internal/provider.Provider`; the first (and
-currently only) implementation targets the **Case.TrackIt** REST API.
+Backends are pluggable behind `internal/provider.Provider`. Three are built
+in: **Case.TrackIt** (OIDC device-code login), **Toggl Track** (static API
+token), and a customer **Zeiterfassung / week-booking** API (also a static
+API token).
 
 ## Setup
 
@@ -13,8 +15,13 @@ currently only) implementation targets the **Case.TrackIt** REST API.
    ```
 
    On first run there's no config yet, so LazyTrackIt writes a starter file
-   to `$XDG_CONFIG_HOME/lazytrackit/config.yaml` (or `~/.config/lazytrackit/config.yaml`)
-   and exits.
+   and exits, **printing the exact path it wrote to** so you know what to
+   edit next. That path is:
+
+   - `$XDG_CONFIG_HOME/lazytrackit/config.yaml` if `XDG_CONFIG_HOME` is set,
+   - `%APPDATA%\lazytrackit\config.yaml` on Windows (typically
+     `C:\Users\<you>\AppData\Roaming\lazytrackit\config.yaml`),
+   - `~/.config/lazytrackit/config.yaml` on Linux/macOS otherwise.
 
 2. Edit that file:
 
@@ -37,8 +44,100 @@ currently only) implementation targets the **Case.TrackIt** REST API.
 
 3. Run `go run .` again. On first login you'll see a URL and a short code;
    approve it in your browser (LazyTrackIt tries to open it for you). Tokens
-   are cached under `~/.local/state/lazytrackit/tokens/`, so you won't need
-   to log in again until the refresh token expires.
+   are cached under `~/.local/state/lazytrackit/tokens/` (on Windows:
+   `%LOCALAPPDATA%\lazytrackit\tokens\`), so you won't need to log in again
+   until the refresh token expires.
+
+### Using Toggl Track instead
+
+Toggl has no device-code flow to run — grab your API token from
+[track.toggl.com/profile](https://track.toggl.com/profile) and configure it
+directly:
+
+```yaml
+active_provider: toggl
+providers:
+  toggl:
+    type: toggl
+    auth:
+      api_token: <your Toggl API token>
+```
+
+`base_url` can be omitted (defaults to `https://api.track.toggl.com`). There's
+no login step or token cache: the token in `config.yaml` is the credential,
+and it doesn't expire until you regenerate it in Toggl.
+
+### Using a Zeiterfassung / week-booking deployment instead
+
+This one also has no device-code flow (its OIDC login is session-cookie
+based, meant for the browser, not a CLI): mint an API token the same way a
+CLI script would and configure it directly:
+
+```yaml
+active_provider: weekbooking
+providers:
+  weekbooking:
+    type: weekbooking
+    base_url: https://zeiterfassung.example.com
+    auth:
+      api_token: <your week-booking API token>
+```
+
+Like Toggl, there's no login step or token cache here either. Note the
+backend's own model: entries are booked as decimal hours against an ISO
+(year, week, weekday) rather than a start/end time, there's no tag concept,
+and a week can be "closed" — entries in a closed week come back from
+LazyTrackIt as locked (read-only) and the API rejects writes against them
+with a `week_closed` error.
+
+## Building a Windows executable
+
+You don't need Windows to build the Windows binary — Go cross-compiles from
+Linux/macOS out of the box:
+
+```
+GOOS=windows GOARCH=amd64 go build -o lazytrackit.exe .
+```
+
+This produces a single `lazytrackit.exe` with no external dependencies to
+install. To send it to friends for testing:
+
+1. Zip it up (recommended, since some mail/chat tools block raw `.exe`
+   attachments):
+
+   ```
+   zip lazytrackit-windows.zip lazytrackit.exe
+   ```
+
+2. Send `lazytrackit-windows.zip` via whatever channel is convenient (email,
+   Slack, Discord, a shared drive link, etc.).
+3. Tell your friend to unzip it and double-click `lazytrackit.exe`, or run
+   it from Windows Terminal / PowerShell (see below for why that's
+   preferred over the legacy Command Prompt).
+4. Since the `.exe` isn't code-signed, Windows SmartScreen may show an
+   "unknown publisher" warning on first launch — click **More info** → **Run
+   anyway** to proceed.
+
+They'll still need their own `config.yaml` (see Setup above) — the binary
+itself contains no account-specific configuration.
+
+## Running on Windows
+
+- **Config file**: `%APPDATA%\lazytrackit\config.yaml` — this is what you
+  edit with your `base_url` and Keycloak `client_id` (step 2 above). The app
+  prints this exact path the first time it runs, before you've created it.
+- **Cached tokens / remembered last-used project & tags**: both live under
+  `%LOCALAPPDATA%\lazytrackit\`, separate from the config file since they're
+  machine-local and shouldn't roam between PCs the way hand-edited config
+  should.
+- **Terminal**: run it from **Windows Terminal** or PowerShell rather than
+  the legacy Command Prompt console host — the UI uses emoji and box-drawing
+  characters that the old console doesn't render correctly.
+- If you double-click `lazytrackit.exe` directly (instead of running it from
+  an already-open terminal) on a run that only prints a message and exits —
+  e.g. the first-run config path, or an error — it'll wait for you to press
+  Enter before the window closes, so the message doesn't just flash and
+  disappear.
 
 ## Using it
 
@@ -48,10 +147,25 @@ currently only) implementation targets the **Case.TrackIt** REST API.
 - `r` — refresh
 - `[` / `]` — previous / next week
 - `t` — jump back to the current week
+- `p` — switch provider (only shown once more than one is configured)
 - `q` / `ctrl+c` — quit
 
 In the entry form: `tab`/`shift+tab` (or `↑`/`↓`) move between fields,
 `←`/`→` cycle the selected project, `enter` saves, `esc` cancels.
+
+## Using multiple providers
+
+You can configure more than one provider under `providers:` in
+`config.yaml` — e.g. two different TrackIt accounts, or a staging and
+production environment (see the commented-out example in the starter
+config). Press `p` from the main list to switch between them.
+
+Whichever provider you last switched to is remembered locally (alongside
+your cached tokens, so it doesn't roam between machines) and becomes the
+default on the next run, taking precedence over `active_provider` in
+`config.yaml`. Each provider keeps its own cached login and its own
+remembered last-used project/tags, so switching back and forth doesn't
+require logging in again unless a provider's session has actually expired.
 
 ## Wire-format notes
 
