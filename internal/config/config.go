@@ -66,10 +66,10 @@ providers:
   trackit:
     type: trackit
     # Base URL of your Case.TrackIt API (no trailing slash).
-    base_url: https://trackit.case-tunisia.com
+    base_url: https://trackit.yourcompany.com
     auth:
       # Keycloak (or any OIDC) realm issuer URL.
-      issuer: https://auth2.case-tunisia.com/realms/case
+      issuer: https://auth.yourcompany.com/realms/yourrealm
       # Client registered in Keycloak with the "Device Authorization Grant" enabled.
       client_id: lazytrackit
       # Only needed if the client is confidential.
@@ -85,9 +85,9 @@ providers:
   #
   # trackit-other:
   #   type: trackit
-  #   base_url: https://trackit.case-tunisia.com
+  #   base_url: https://trackit.yourcompany.com
   #   auth:
-  #     issuer: https://auth2.case-tunisia.com/realms/case
+  #     issuer: https://auth.yourcompany.com/realms/yourrealm
   #     client_id: lazytrackit
   #     client_secret: ""
   #     scopes: [openid, profile, offline_access]

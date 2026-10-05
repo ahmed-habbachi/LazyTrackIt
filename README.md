@@ -90,9 +90,9 @@ itself contains no account-specific configuration.
    providers:
      trackit:
        type: trackit
-       base_url: https://trackit.case-tunisia.com
+       base_url: https://trackit.yourcompany.com
        auth:
-         issuer: https://auth2.case-tunisia.com/realms/case
+         issuer: https://auth.yourcompany.com/realms/yourrealm
          client_id: <your Keycloak client id>
          client_secret: ""   # only if the client is confidential
          scopes: [openid, profile, offline_access]

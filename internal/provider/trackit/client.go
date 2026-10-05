@@ -23,7 +23,7 @@ import (
 // TrackIt's own shape for config.ProviderConfig.Auth; a different provider
 // would define its own (e.g. a bare API key).
 type AuthConfig struct {
-	Issuer       string   `yaml:"issuer"` // e.g. https://auth2.case-tunisia.com/realms/case
+	Issuer       string   `yaml:"issuer"` // e.g. https://auth.yourcompany.com/realms/yourrealm
 	ClientID     string   `yaml:"client_id"`
 	ClientSecret string   `yaml:"client_secret,omitempty"`
 	Scopes       []string `yaml:"scopes,omitempty"`
