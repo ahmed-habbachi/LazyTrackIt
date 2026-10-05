@@ -24,8 +24,17 @@ binaries:
 
 - `~/.local/bin/lazytrackit` — per-user, no root needed; works out of the
   box if `~/.local/bin` is already on your `PATH` (most distros add it by
-  default for login shells).
-- `/usr/local/bin/lazytrackit` — system-wide, needs `sudo mv`.
+  default for login shells):
+
+  ```
+  mkdir -p ~/.local/bin && mv lazytrackit ~/.local/bin/
+  ```
+
+- `/usr/local/bin/lazytrackit` — system-wide, needs `sudo mv`:
+
+  ```
+  sudo mv lazytrackit /usr/local/bin/
+  ```
 
 Then run it with `lazytrackit` (if it's on your `PATH`) or the full path.
 
