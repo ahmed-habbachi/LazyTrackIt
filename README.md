@@ -6,6 +6,57 @@ in: **Case.TrackIt** (OIDC device-code login), **Toggl Track** (static API
 token), and a customer **Zeiterfassung / week-booking** API (also a static
 API token).
 
+## Downloading a release
+
+Tagged versions (`vX.Y.Z`) are built automatically for Linux (amd64, arm64)
+and Windows (amd64) — grab the archive for your platform from the
+[Releases page](../../releases).
+
+### Linux
+
+```
+tar -xzf lazytrackit_<version>_linux_<arch>.tar.gz
+```
+
+`tar` preserves the executable bit, so no `chmod +x` should be needed. Put
+the extracted `lazytrackit` binary wherever you keep user-installed
+binaries:
+
+- `~/.local/bin/lazytrackit` — per-user, no root needed; works out of the
+  box if `~/.local/bin` is already on your `PATH` (most distros add it by
+  default for login shells).
+- `/usr/local/bin/lazytrackit` — system-wide, needs `sudo mv`.
+
+Then run it with `lazytrackit` (if it's on your `PATH`) or the full path.
+
+### Windows
+
+Right-click the `.zip` → **Extract All** (or any archive tool — it's a
+standard zip, no extra software required). Put the extracted
+`lazytrackit.exe` under:
+
+- `%LOCALAPPDATA%\Programs\lazytrackit\` — per-user, no admin rights
+  needed. This is the conventional spot for user-installed apps that don't
+  come with their own installer.
+
+Then run it from **Windows Terminal** or PowerShell (see
+[Running on Windows](#running-on-windows) below for why, and for what
+happens if you double-click it instead). Since the `.exe` isn't
+code-signed, Windows SmartScreen may flag it as from an "unknown
+publisher" — click **More info** → **Run anyway**.
+
+### Verifying a download (optional)
+
+Each archive has a matching `.sha256` file:
+
+```
+sha256sum -c lazytrackit_<version>_linux_<arch>.tar.gz.sha256   # Linux
+CertUtil -hashfile lazytrackit_<version>_windows_amd64.zip SHA256  # Windows (PowerShell/cmd)
+```
+
+They'll still need their own `config.yaml` (see Setup below) — the binary
+itself contains no account-specific configuration.
+
 ## Setup
 
 1. Build and run once:
@@ -91,6 +142,10 @@ LazyTrackIt as locked (read-only) and the API rejects writes against them
 with a `week_closed` error.
 
 ## Building a Windows executable
+
+Tagged releases are built automatically (see
+[Downloading a release](#downloading-a-release) above) — this section is
+only for building your own one-off binary, e.g. from an untagged commit.
 
 You don't need Windows to build the Windows binary — Go cross-compiles from
 Linux/macOS out of the box:

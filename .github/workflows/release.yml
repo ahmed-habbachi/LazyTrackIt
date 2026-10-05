@@ -30,18 +30,29 @@ jobs:
         with:
           go-version: "1.27"
 
-      - name: Build
+      - name: Build and package
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          bin="lazytrackit"
+          if [ "${{ matrix.goos }}" = "windows" ]; then bin="lazytrackit.exe"; fi
+          go build -trimpath -ldflags "-s -w" -o "$work/$bin" .
+
           mkdir -p dist
-          ext=""
-          if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
-          out="dist/lazytrackit-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}${ext}"
-          go build -trimpath -ldflags "-s -w" -o "$out" .
-          (cd dist && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+          base="lazytrackit_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            archive="dist/${base}.zip"
+            GOOS= GOARCH= go run ./.github/scripts/zip.go "$work/$bin" "$archive" "$bin"
+          else
+            archive="dist/${base}.tar.gz"
+            tar -czf "$archive" -C "$work" "$bin"
+          fi
+
+          (cd dist && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -66,3 +77,16 @@ jobs:
           files: dist/*
           generate_release_notes: true
           draft: false
+          body: |
+            ## Download
+
+            Grab the archive for your platform below, then see the
+            [README](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#downloading-a-release)
+            for where to extract it and how to run it.
+
+            - **Linux (x86_64)**: `lazytrackit_${{ github.ref_name }}_linux_amd64.tar.gz`
+            - **Linux (ARM64)**: `lazytrackit_${{ github.ref_name }}_linux_arm64.tar.gz`
+            - **Windows (x86_64)**: `lazytrackit_${{ github.ref_name }}_windows_amd64.zip`
+
+            Each archive has a matching `.sha256` file if you want to verify
+            the download.
