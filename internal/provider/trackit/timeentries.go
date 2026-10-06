@@ -150,7 +150,7 @@ type createTimeEntryCommand struct {
 	Date           string  `json:"date"`
 	Description    string  `json:"description"`
 	IsLocked       bool    `json:"isLocked"`
-	TagsIDs        []int32 `json:"tagsIds,omitempty"`
+	TagsIDs        []int32 `json:"tagsIds"`
 }
 
 // CreateTimeEntry creates a new time entry from e and returns it as stored.
@@ -205,7 +205,7 @@ type updateTimeEntryCommand struct {
 	Date           string  `json:"date"`
 	Description    string  `json:"description"`
 	IsLocked       bool    `json:"isLocked"`
-	TagsIDs        []int32 `json:"tagsIds,omitempty"`
+	TagsIDs        []int32 `json:"tagsIds"`
 }
 
 // UpdateTimeEntry updates an existing entry (matched by e.ID) and returns it as stored.
