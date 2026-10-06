@@ -476,12 +476,12 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenLoading
 		go m.loadEntries(m.weekStart)
 		return m, nil
-	case "[":
+	case "[", "left":
 		m.weekStart = m.weekStart.AddDate(0, 0, -7)
 		m.screen = screenLoading
 		go m.loadEntries(m.weekStart)
 		return m, nil
-	case "]":
+	case "]", "right":
 		m.weekStart = m.weekStart.AddDate(0, 0, 7)
 		m.screen = screenLoading
 		go m.loadEntries(m.weekStart)
