@@ -518,15 +518,11 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab", "up":
 		f.prev()
 		return m, nil
-
-	case "left", "right":
-		// Arrow keys have no effect outside the Project field; unlike "h"/
-		// "l" they aren't printable, so there's nothing to fall through to.
-		return m, nil
 	}
 
 	idx := fieldToInputIndex(f.focus)
 	if idx < 0 {
+		// Arrow keys have no effect on non-text fields.
 		return m, nil
 	}
 	inputs := f.inputs()
