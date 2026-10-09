@@ -183,8 +183,17 @@ type dateField struct {
 	entered int       // digits typed into the active segment since it was last (re)focused
 }
 
+// newDateField normalizes t to midnight UTC, regardless of t's own location.
+// The field only ever represents a calendar date (year/month/day), never a
+// real instant, so it must stay in one fixed location: every mutator
+// (setYear/setMonth/setDay) already rebuilds the value in UTC, and
+// construction has to match or the date sent to a provider would carry
+// whatever non-UTC offset t happened to have (e.g. Local) until first
+// edited, which can shift the calendar date by a day once a provider
+// formats it with that offset and the server normalizes it back to UTC.
 func newDateField(t time.Time) dateField {
-	return dateField{value: startOfDay(t)}
+	y, mo, d := t.Date()
+	return dateField{value: time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)}
 }
 
 func (d dateField) year() int  { return d.value.Year() }
@@ -534,12 +543,21 @@ func newTextInput(placeholder, value string, charLimit, width int) textinput.Mod
 // newEntryForm builds a form. Pass an existing entry to edit it, or nil to
 // create a new one defaulted to the given week's current day/hour and to
 // defaults' project/tags (usually the ones last used, since entries tend to
-// be logged against the same project/tags in a row).
-func newEntryForm(existing *provider.TimeEntry, projects []provider.Project, weekStart time.Time, defaults config.LastEntryDefaults) *entryForm {
+// be logged against the same project/tags in a row). existingEntries is only
+// consulted for a new entry (existing == nil): the default start time is set
+// to right after the latest entry already logged on that day, instead of
+// always "now rounded to the hour", so a second new entry doesn't collide
+// with one just created and get rejected as an overlapping time period.
+func newEntryForm(existing *provider.TimeEntry, projects []provider.Project, weekStart time.Time, defaults config.LastEntryDefaults, existingEntries []provider.TimeEntry) *entryForm {
 	f := &entryForm{projects: projects}
 
 	date := defaultEntryDate(weekStart)
 	fromMin := roundToHour(time.Now())
+	if existing == nil {
+		if lastEnd, ok := latestEntryEndMinutes(existingEntries, date); ok {
+			fromMin = lastEnd
+		}
+	}
 	toMin := fromMin + 60
 	description := ""
 	tagIDs := defaults.TagIDs
@@ -614,6 +632,23 @@ func defaultEntryDate(weekStart time.Time) time.Time {
 		return today
 	}
 	return weekStart
+}
+
+// latestEntryEndMinutes returns the latest End time-of-day, in minutes,
+// among entries that fall on date, so a new entry can default to starting
+// right after it instead of landing on an already-booked slot. ok is false
+// if date has no entries yet.
+func latestEntryEndMinutes(entries []provider.TimeEntry, date time.Time) (minutes int, ok bool) {
+	for _, e := range entries {
+		if !startOfDay(e.End).Equal(date) {
+			continue
+		}
+		if end := minutesOfDay(e.End); !ok || end > minutes {
+			minutes = end
+			ok = true
+		}
+	}
+	return minutes, ok
 }
 
 // inputs lists the plain-text fields; fieldProject, the dateField, and the

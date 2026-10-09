@@ -480,7 +480,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return m, tea.Quit
 	case "n":
-		m.form = newEntryForm(nil, m.projects, m.weekStart, m.lastDefaults)
+		m.form = newEntryForm(nil, m.projects, m.weekStart, m.lastDefaults, m.entries)
 		m.screen = screenForm
 		go m.loadTags(m.form.currentProjectID())
 		return m, nil
@@ -490,7 +490,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "This entry is locked and cannot be edited."
 				return m, nil
 			}
-			m.form = newEntryForm(e, m.projects, m.weekStart, m.lastDefaults)
+			m.form = newEntryForm(e, m.projects, m.weekStart, m.lastDefaults, nil)
 			m.screen = screenForm
 			go m.loadTags(m.form.currentProjectID())
 		}

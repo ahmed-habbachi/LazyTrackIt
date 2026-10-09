@@ -66,6 +66,14 @@ var (
 			Bold(true).
 			Padding(0, 1)
 
+	// pillWarnStyle flags the expected-hours pill when logged hours are
+	// behind the cumulated daily target.
+	pillWarnStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("0")).
+			Background(colorError).
+			Bold(true).
+			Padding(0, 1)
+
 	sectionStyle = lipgloss.NewStyle().Padding(1, 2)
 
 	// timeSegmentStyle highlights whichever of hour/minute is currently
