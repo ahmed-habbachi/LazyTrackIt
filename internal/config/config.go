@@ -24,6 +24,17 @@ type ProviderConfig struct {
 type Config struct {
 	ActiveProvider string                    `yaml:"active_provider"`
 	Providers      map[string]ProviderConfig `yaml:"providers"`
+	// CheckForUpdates controls the startup check against GitHub releases.
+	// A pointer so a missing key defaults to enabled (see UpdatesEnabled)
+	// without an explicit "check_for_updates: true" in every config file.
+	CheckForUpdates *bool `yaml:"check_for_updates"`
+}
+
+// UpdatesEnabled reports whether LazyTrackIt should check for and install
+// updates on startup. It defaults to true when check_for_updates is absent
+// from the config file.
+func (c *Config) UpdatesEnabled() bool {
+	return c.CheckForUpdates == nil || *c.CheckForUpdates
 }
 
 // Dir returns the directory LazyTrackIt stores its config in, honoring
@@ -61,6 +72,12 @@ const exampleConfig = `# LazyTrackIt configuration
 # providers from within the app (press 'p'), that choice is remembered
 # locally and takes precedence over this value on future runs.
 active_provider: trackit
+
+# LazyTrackIt checks GitHub for a newer release on startup and, if one's
+# available for your platform, downloads and installs it in the background
+# (it takes effect next time you start the app; your current session is
+# never interrupted). Uncomment to disable:
+# check_for_updates: false
 
 providers:
   trackit:

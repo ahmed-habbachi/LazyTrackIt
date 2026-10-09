@@ -66,6 +66,29 @@ CertUtil -hashfile lazytrackit_<version>_windows_amd64.zip SHA256  # Windows (Po
 They'll still need their own `config.yaml` (see Setup below) — the binary
 itself contains no account-specific configuration.
 
+### Auto-updates
+
+Every tagged build knows its own version, and on startup LazyTrackIt checks
+GitHub for a newer release. If one's available for your OS/arch, it's
+downloaded, checksum-verified, and swapped in for the installed binary
+automatically — no action needed, and your current session is never
+interrupted. The new version takes effect the next time you start
+LazyTrackIt, and the app lets you know when that's ready with a line at the
+bottom of the entry list.
+
+If the check or install fails for any reason (offline, rate-limited, no
+write permission on the install directory, no build for your platform,
+etc.) it just stays quiet and you keep using the version you have — nothing
+is ever surfaced as an error.
+
+Binaries built with plain `go build`/`go run` (rather than a tagged release)
+don't have a version baked in, so they skip the check entirely. To disable
+it outright, add to `config.yaml`:
+
+```yaml
+check_for_updates: false
+```
+
 ## Setup
 
 1. Build and run once:

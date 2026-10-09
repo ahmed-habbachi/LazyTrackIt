@@ -17,9 +17,15 @@ import (
 	"github.com/ahmed-habbachi/lazytrackit/internal/provider/trackit"
 	"github.com/ahmed-habbachi/lazytrackit/internal/provider/weekbooking"
 	"github.com/ahmed-habbachi/lazytrackit/internal/ui"
+	"github.com/ahmed-habbachi/lazytrackit/internal/version"
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println("lazytrackit " + version.Version)
+		return
+	}
+
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "lazytrackit:", err)
 		pauseOnWindows()
@@ -62,7 +68,7 @@ func run() error {
 	// active_provider from the config file on the next run.
 	_ = config.SaveLastProvider(active)
 
-	p := tea.NewProgram(ui.New(providers, names, active), tea.WithAltScreen())
+	p := tea.NewProgram(ui.New(providers, names, active, cfg.UpdatesEnabled()), tea.WithAltScreen())
 	_, err = p.Run()
 	return err
 }

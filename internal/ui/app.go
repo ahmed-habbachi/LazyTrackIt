@@ -15,6 +15,8 @@ import (
 
 	"github.com/ahmed-habbachi/lazytrackit/internal/config"
 	"github.com/ahmed-habbachi/lazytrackit/internal/provider"
+	"github.com/ahmed-habbachi/lazytrackit/internal/update"
+	"github.com/ahmed-habbachi/lazytrackit/internal/version"
 )
 
 type screen int
@@ -39,6 +41,7 @@ type Model struct {
 	providerCursor     int // selection while screenProviderPicker is shown
 	prov               provider.Provider
 	events             chan tea.Msg
+	checkForUpdates    bool
 
 	screen  screen
 	spinner spinner.Model
@@ -63,12 +66,19 @@ type Model struct {
 
 	err    error
 	status string
+
+	// updateNotice, once set, is shown on the list screen to report that a
+	// newer release was downloaded and installed in the background. It's
+	// purely informational: the install already happened, this just lets
+	// the user know a restart will pick it up.
+	updateNotice string
 }
 
 // New builds the initial Model. providers holds every configured provider
-// keyed by name, names is their stable display order, and active is which
-// of them to start with.
-func New(providers map[string]provider.Provider, names []string, active string) Model {
+// keyed by name, names is their stable display order, active is which of
+// them to start with, and checkForUpdates controls whether LazyTrackIt
+// checks GitHub for a newer release on startup.
+func New(providers map[string]provider.Provider, names []string, active string, checkForUpdates bool) Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
@@ -100,6 +110,7 @@ func New(providers map[string]provider.Provider, names []string, active string) 
 		activeProviderName: active,
 		prov:               providers[active],
 		events:             make(chan tea.Msg, 4),
+		checkForUpdates:    checkForUpdates,
 		screen:             screenLoading,
 		spinner:            s,
 		table:              t,
@@ -129,10 +140,29 @@ func waitForEvent(events chan tea.Msg) tea.Cmd {
 	}
 }
 
-// Init kicks off authentication (if needed) and the initial data load.
+// Init kicks off authentication (if needed), the initial data load, and (if
+// enabled) a background check for a newer release.
 func (m Model) Init() tea.Cmd {
 	go m.bootstrap()
+	if m.checkForUpdates {
+		go m.checkForUpdate()
+	}
 	return tea.Batch(m.spinner.Tick, waitForEvent(m.events))
+}
+
+// checkForUpdate runs in its own goroutine. It's entirely best-effort: on
+// any failure (offline, rate-limited, no release for this platform, etc.)
+// it just stays quiet rather than reporting an error, since this is a
+// background convenience, not something the user is waiting on.
+func (m Model) checkForUpdate() {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	newVersion, ok := update.CheckAndApply(ctx, version.Version)
+	if !ok {
+		return
+	}
+	m.events <- updateInstalledMsg{version: newVersion}
 }
 
 // bootstrap runs in its own goroutine: logs in if necessary, then loads the
@@ -325,6 +355,10 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deleteTarget = nil
 		m.screen = screenLoading
 		go m.loadEntries(m.weekStart)
+		return m, nil
+
+	case updateInstalledMsg:
+		m.updateNotice = fmt.Sprintf("Update %s installed — restart LazyTrackIt to use it.", msg.version)
 		return m, nil
 
 	case tea.KeyMsg:

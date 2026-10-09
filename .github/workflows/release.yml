@@ -40,7 +40,8 @@ jobs:
           work=$(mktemp -d)
           bin="lazytrackit"
           if [ "${{ matrix.goos }}" = "windows" ]; then bin="lazytrackit.exe"; fi
-          go build -trimpath -ldflags "-s -w" -o "$work/$bin" .
+          version_pkg="github.com/ahmed-habbachi/lazytrackit/internal/version"
+          go build -trimpath -ldflags "-s -w -X ${version_pkg}.Version=${{ github.ref_name }}" -o "$work/$bin" .
 
           mkdir -p dist
           base="lazytrackit_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}"

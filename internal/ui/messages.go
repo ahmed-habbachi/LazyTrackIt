@@ -32,3 +32,8 @@ type tagsLoadedMsg struct {
 	tags      []provider.Tag
 	err       error
 }
+
+// updateInstalledMsg reports that a newer LazyTrackIt release was found,
+// downloaded, and installed in place of the running executable. It'll be
+// used the next time the app starts.
+type updateInstalledMsg struct{ version string }

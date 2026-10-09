@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/ahmed-habbachi/lazytrackit/internal/version"
 )
 
 func entryColumns(totalWidth int) []table.Column {
@@ -100,7 +102,7 @@ func (m Model) contentWidth() int {
 func (m Model) viewHeader() string {
 	width := m.contentWidth()
 
-	left := appTitleStyle.Render("LazyTrackIt")
+	left := appTitleStyle.Render("LazyTrackIt") + " " + subtleStyle.Render(version.Version)
 	right := ""
 	if name := m.member.DisplayName(); name != "" {
 		right = userIconStyle.Render("logged in as ") + userBadgeStyle.Render(name)
@@ -141,6 +143,10 @@ func (m Model) viewList() string {
 		help = "[n] new  [e] edit  [x/del] delete  [r] refresh  [←/→] week  [t] today  [p] providers  [q] quit"
 	}
 	b.WriteString("\n" + helpStyle.Render(help))
+
+	if m.updateNotice != "" {
+		b.WriteString("\n" + subtleStyle.Render("⬆ "+m.updateNotice))
+	}
 
 	return sectionStyle.Render(b.String())
 }

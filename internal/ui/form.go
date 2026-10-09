@@ -27,14 +27,12 @@ const (
 	fieldCount
 )
 
-const dateInputLayout = "2006-01-02"
-
 type entryForm struct {
 	editingID  string // "" => creating a new entry
 	projects   []provider.Project
 	projectIdx int
 
-	date        textinput.Model
+	date        dateField
 	from        timeField
 	to          timeField
 	description textinput.Model
@@ -170,6 +168,208 @@ func resolveTagIDs(tokens []string, available []provider.Tag) ([]string, error) 
 		return nil, fmt.Errorf("unknown tag %q", tok)
 	}
 	return out, nil
+}
+
+// dateField is a small YYYY-MM-DD spinner widget mirroring timeField:
+// left/right move between the year/month/day segment, up/down nudge the
+// active segment by one (wrapping within that segment, e.g. month wraps
+// 12->1 without touching the year), and digit keys overwrite the active
+// segment outright. The day is clamped to the active month's length
+// whenever the year or month changes, so the field can never hold an
+// invalid date.
+type dateField struct {
+	value   time.Time // normalized date, always midnight
+	segment int       // 0 = year, 1 = month, 2 = day
+	entered int       // digits typed into the active segment since it was last (re)focused
+}
+
+func newDateField(t time.Time) dateField {
+	return dateField{value: startOfDay(t)}
+}
+
+func (d dateField) year() int  { return d.value.Year() }
+func (d dateField) month() int { return int(d.value.Month()) }
+func (d dateField) day() int   { return d.value.Day() }
+
+func daysInMonth(year, month int) int {
+	return time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
+}
+
+func (d *dateField) setYear(y int) {
+	day := d.day()
+	if max := daysInMonth(y, d.month()); day > max {
+		day = max
+	}
+	d.value = time.Date(y, time.Month(d.month()), day, 0, 0, 0, 0, time.UTC)
+}
+
+func (d *dateField) setMonth(m int) {
+	if m < 1 {
+		m = 1
+	} else if m > 12 {
+		m = 12
+	}
+	day := d.day()
+	if max := daysInMonth(d.year(), m); day > max {
+		day = max
+	}
+	d.value = time.Date(d.year(), time.Month(m), day, 0, 0, 0, 0, time.UTC)
+}
+
+func (d *dateField) setDay(day int) {
+	max := daysInMonth(d.year(), d.month())
+	if day < 1 {
+		day = 1
+	} else if day > max {
+		day = max
+	}
+	d.value = time.Date(d.year(), time.Month(d.month()), day, 0, 0, 0, 0, time.UTC)
+}
+
+// focus resets the field so the year segment is active, matching timeField.
+func (d *dateField) focus() {
+	d.segment = 0
+	d.entered = 0
+}
+
+func (d *dateField) handleKey(msg tea.KeyMsg) bool {
+	switch msg.String() {
+	case "left":
+		if d.segment > 0 {
+			d.segment--
+		}
+		d.entered = 0
+		return true
+	case "right":
+		if d.segment < 2 {
+			d.segment++
+		}
+		d.entered = 0
+		return true
+	case "up":
+		d.step(1)
+		return true
+	case "down":
+		d.step(-1)
+		return true
+	case "backspace":
+		if d.entered == 0 {
+			if d.segment > 0 {
+				d.segment--
+			}
+		} else {
+			d.entered = 0
+		}
+		return true
+	}
+
+	if r := msg.Runes; len(r) == 1 && r[0] >= '0' && r[0] <= '9' {
+		d.typeDigit(int(r[0] - '0'))
+		return true
+	}
+	return false
+}
+
+// step nudges the active segment by delta, wrapping within that segment
+// only (e.g. day wraps within the current month's length).
+func (d *dateField) step(delta int) {
+	switch d.segment {
+	case 0:
+		d.setYear(d.year() + delta)
+	case 1:
+		d.setMonth(((d.month()-1+delta)%12+12)%12 + 1)
+	default:
+		max := daysInMonth(d.year(), d.month())
+		d.setDay(((d.day()-1+delta)%max+max)%max + 1)
+	}
+	d.entered = 0
+}
+
+func (d *dateField) curVal() int {
+	switch d.segment {
+	case 0:
+		return d.year()
+	case 1:
+		return d.month()
+	default:
+		return d.day()
+	}
+}
+
+func (d *dateField) setCur(v int) {
+	switch d.segment {
+	case 0:
+		d.setYear(v)
+	case 1:
+		d.setMonth(v)
+	default:
+		d.setDay(v)
+	}
+}
+
+// typeDigit overwrites the active segment the same way timeField does: the
+// first digit after a segment change replaces its value outright, and
+// further digits combine with it while the result stays valid. The year
+// segment takes up to 4 digits; month and day advance to the next segment
+// once they're unambiguously complete, exactly like timeField's hour/minute.
+func (d *dateField) typeDigit(digit int) {
+	if d.segment == 0 {
+		const yearDigits = 4
+		val := digit
+		if d.entered > 0 && d.entered < yearDigits {
+			val = d.curVal()*10 + digit
+		}
+		d.entered++
+		d.setYear(val)
+		if d.entered >= yearDigits {
+			d.segment = 1
+			d.entered = 0
+		}
+		return
+	}
+
+	max := 12
+	if d.segment == 2 {
+		max = daysInMonth(d.year(), d.month())
+	}
+
+	val := digit
+	if d.entered == 1 {
+		if candidate := d.curVal()*10 + digit; candidate <= max {
+			val = candidate
+			d.entered = 2
+		} else {
+			d.entered = 1
+		}
+	} else {
+		d.entered = 1
+	}
+	d.setCur(val)
+
+	if d.entered == 2 || val*10 > max {
+		if d.segment < 2 {
+			d.segment++
+		}
+		d.entered = 0
+	}
+}
+
+// view renders "YYYY-MM-DD", highlighting the active segment when focused.
+func (d dateField) view(focused bool) string {
+	yyyy := fmt.Sprintf("%04d", d.year())
+	mm := fmt.Sprintf("%02d", d.month())
+	dd := fmt.Sprintf("%02d", d.day())
+	if !focused {
+		return yyyy + "-" + mm + "-" + dd
+	}
+	switch d.segment {
+	case 0:
+		return timeSegmentStyle.Render(yyyy) + "-" + mm + "-" + dd
+	case 1:
+		return yyyy + "-" + timeSegmentStyle.Render(mm) + "-" + dd
+	default:
+		return yyyy + "-" + mm + "-" + timeSegmentStyle.Render(dd)
+	}
 }
 
 // timeField is a small HH:MM spinner widget: left/right move between the
@@ -362,7 +562,7 @@ func newEntryForm(existing *provider.TimeEntry, projects []provider.Project, wee
 		}
 	}
 
-	f.date = newTextInput("YYYY-MM-DD", date.Format(dateInputLayout), 10, 12)
+	f.date = newDateField(date)
 	f.from = newTimeField(fromMin)
 	f.to = newTimeField(toMin)
 	f.description = newTextInput("What did you work on?", description, 500, 50)
@@ -416,22 +616,21 @@ func defaultEntryDate(weekStart time.Time) time.Time {
 	return weekStart
 }
 
-// inputs lists the plain-text fields; fieldProject and the timeFields
-// (fieldFrom/fieldTo) manage their own focus and key handling instead.
+// inputs lists the plain-text fields; fieldProject, the dateField, and the
+// timeFields (fieldFrom/fieldTo) manage their own focus and key handling
+// instead.
 func (f *entryForm) inputs() []*textinput.Model {
-	return []*textinput.Model{&f.date, &f.description, &f.tags}
+	return []*textinput.Model{&f.description, &f.tags}
 }
 
 // fieldToInputIndex maps a formField to its index within inputs(), or -1
 // for fields that aren't plain-text inputs.
 func fieldToInputIndex(fld formField) int {
 	switch fld {
-	case fieldDate:
-		return 0
 	case fieldDescription:
-		return 1
+		return 0
 	case fieldTags:
-		return 2
+		return 1
 	default:
 		return -1
 	}
@@ -445,6 +644,8 @@ func (f *entryForm) focusCurrent() {
 		f.inputs()[idx].Focus()
 	}
 	switch f.focus {
+	case fieldDate:
+		f.date.focus()
 	case fieldFrom:
 		f.from.focus()
 	case fieldTo:
@@ -485,6 +686,13 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			tf = &f.to
 		}
 		if tf.handleKey(msg) {
+			f.err = ""
+			return m, nil
+		}
+	}
+
+	if f.focus == fieldDate {
+		if f.date.handleKey(msg) {
 			f.err = ""
 			return m, nil
 		}
@@ -538,11 +746,7 @@ func (m Model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	date, err := time.Parse(dateInputLayout, strings.TrimSpace(f.date.Value()))
-	if err != nil {
-		f.err = "Date must be in YYYY-MM-DD format."
-		return m, nil
-	}
+	date := f.date.value
 	fromMin, toMin := f.from.minutes, f.to.minutes
 	if toMin <= fromMin {
 		f.err = "To must be after From."
@@ -603,7 +807,7 @@ func (m Model) viewForm() string {
 	}
 
 	b.WriteString("\n" + groupHeadingStyle.Render("WHEN") + "\n")
-	b.WriteString(renderField("📅 Date", f.date.View(), f.focus == fieldDate))
+	b.WriteString(renderField("📅 Date", f.date.view(f.focus == fieldDate), f.focus == fieldDate))
 
 	fromView := f.from.view(f.focus == fieldFrom)
 	b.WriteString(renderField("🕐 From", fromView, f.focus == fieldFrom))
@@ -624,6 +828,8 @@ func (m Model) viewForm() string {
 		help = "[0-9] type  [←/→] hour/min  [↑/↓] ±1  [tab] next field  [enter] save  [esc] cancel"
 	} else if f.focus == fieldProject {
 		help = "[←/→] change project  [tab] next field  [enter] save  [esc] cancel"
+	} else if f.focus == fieldDate {
+		help = "[0-9] type  [←/→] year/month/day  [↑/↓] ±1  [tab] next field  [enter] save  [esc] cancel"
 	}
 	b.WriteString("\n" + helpStyle.Render(help))
 
