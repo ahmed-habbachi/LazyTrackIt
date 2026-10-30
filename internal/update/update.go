@@ -13,35 +13,55 @@ import (
 	"runtime"
 )
 
-// CheckAndApply checks for a release newer than currentVersion and, if one
-// is found and a matching platform build is published, downloads, verifies,
-// and installs it in place of the running executable.
+// CheckResult is the outcome of CheckAndApply. At most one of Installed and
+// Unwritable is set; the zero value means nothing happened (up to date, or a
+// failure that was logged and skipped).
+type CheckResult struct {
+	// Installed reports that NewVersion was downloaded and installed in
+	// place of the running executable; it takes effect on next start.
+	Installed  bool
+	NewVersion string
+
+	// Unwritable, if set, is the install directory the current user can't
+	// write to, meaning self-update can never succeed from there.
+	Unwritable string
+}
+
+// CheckAndApply checks GitHub for a release newer than currentVersion and, if
+// one is found and a matching platform build is published, downloads,
+// verifies, and installs it in place of the running executable.
 //
-// It reports ok=true with the new version string only on a fully successful
-// install. Any failure along the way (network error, rate limiting, no
-// release for this platform, checksum mismatch, no write permission on the
-// install directory, etc.) is treated as a no-op: this is a best-effort
-// background convenience, not something worth interrupting or alarming the
-// user over, so callers should simply skip showing anything when ok is
-// false. Every outcome, including a no-op and why, is appended to update.log
-// in the config directory (see logf) so a silent failure can still be
-// diagnosed after the fact.
-func CheckAndApply(ctx context.Context, currentVersion string) (newVersion string, ok bool) {
-	// "dev" (the default for local go-run/go-build builds) has nothing
-	// meaningful to compare a release tag against.
+// Any failure along the way (network error, rate limiting, no release for
+// this platform, checksum mismatch, etc.) returns a zero CheckResult: this is
+// a best-effort background convenience, not something worth interrupting the
+// user over. The one failure reported back is an install directory that
+// isn't writable (CheckResult.Unwritable), since that can never fix itself
+// and the user has to move the binary. Every outcome, including a no-op and
+// why, is appended to update.log in the config directory (see logf).
+func CheckAndApply(ctx context.Context, currentVersion string) CheckResult {
 	if currentVersion == "dev" || currentVersion == "" {
 		logf("skip: running a dev build (%q), nothing to compare against", currentVersion)
-		return "", false
+		return CheckResult{}
+	}
+
+	dir, writable, err := installDirWritable()
+	if err != nil {
+		logf("checking install directory failed: %v", err)
+		return CheckResult{}
+	}
+	if !writable {
+		logf("install directory %s is not writable by the current user — self-update can never succeed here", dir)
+		return CheckResult{Unwritable: dir}
 	}
 
 	rel, err := fetchLatestRelease(ctx)
 	if err != nil || rel == nil {
 		logf("fetching latest release failed: %v", err)
-		return "", false
+		return CheckResult{}
 	}
 	if !isNewer(rel.TagName, currentVersion) {
 		logf("up to date: latest release %s is not newer than running %s", rel.TagName, currentVersion)
-		return "", false
+		return CheckResult{}
 	}
 	logf("found newer release %s (running %s)", rel.TagName, currentVersion)
 
@@ -49,45 +69,45 @@ func CheckAndApply(ctx context.Context, currentVersion string) (newVersion strin
 	archiveAsset, ok := findAsset(rel.Assets, archiveSuffix)
 	if !ok {
 		logf("no release asset published for this platform (suffix %s)", archiveSuffix)
-		return "", false
+		return CheckResult{}
 	}
 	checksumAsset, ok := findAsset(rel.Assets, archiveAsset.Name+".sha256")
 	if !ok {
 		logf("no checksum asset found for %s", archiveAsset.Name)
-		return "", false
+		return CheckResult{}
 	}
 
 	archivePath, err := downloadToTemp(ctx, archiveAsset.BrowserDownloadURL, "lazytrackit-update-*"+archiveExtDot())
 	if err != nil {
 		logf("downloading %s failed: %v", archiveAsset.Name, err)
-		return "", false
+		return CheckResult{}
 	}
 	defer os.Remove(archivePath)
 
 	wantSum, err := fetchChecksum(ctx, checksumAsset.BrowserDownloadURL)
 	if err != nil {
 		logf("fetching checksum failed: %v", err)
-		return "", false
+		return CheckResult{}
 	}
 	if err := verifySHA256(archivePath, wantSum); err != nil {
 		logf("checksum verification failed: %v", err)
-		return "", false
+		return CheckResult{}
 	}
 
 	binaryPath, err := extractBinary(archivePath)
 	if err != nil {
 		logf("extracting binary from archive failed: %v", err)
-		return "", false
+		return CheckResult{}
 	}
 	defer os.Remove(binaryPath)
 
 	if err := install(binaryPath); err != nil {
 		logf("installing update failed: %v", err)
-		return "", false
+		return CheckResult{}
 	}
 
 	logf("installed %s — will take effect on next restart", rel.TagName)
-	return rel.TagName, true
+	return CheckResult{Installed: true, NewVersion: rel.TagName}
 }
 
 func archiveExt() string {

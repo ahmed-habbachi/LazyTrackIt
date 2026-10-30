@@ -13,7 +13,7 @@ import "time"
 // days lands on the Monday of any other week in the same ISO year.
 func isoWeekMonday(year, week int) time.Time {
 	jan4 := time.Date(year, time.January, 4, 0, 0, 0, 0, time.Local)
-	daysSinceMonday := (int(jan4.Weekday()) + 6) % 7 // Sunday=0 -> 6, Monday=1 -> 0, ...
+	daysSinceMonday := (int(jan4.Weekday()) + 6) % 7
 	week1Monday := jan4.AddDate(0, 0, -daysSinceMonday)
 	return week1Monday.AddDate(0, 0, (week-1)*7)
 }

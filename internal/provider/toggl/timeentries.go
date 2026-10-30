@@ -31,9 +31,6 @@ func dtoToEntry(d timeEntryDto) provider.TimeEntry {
 	if d.ProjectID != nil {
 		projectID = idToString(*d.ProjectID)
 	}
-	// A running entry (no stop yet) has no defined end; v1 is CRUD-only and
-	// has no notion of an in-progress timer, so it's reported as zero-length
-	// rather than left with a zero End.
 	end := d.Start
 	if d.Stop != nil {
 		end = *d.Stop
@@ -47,9 +44,7 @@ func dtoToEntry(d timeEntryDto) provider.TimeEntry {
 		End:         end,
 		Description: d.Description,
 		TagIDs:      tagIDs,
-		// Toggl's public API exposes workspace-level entry locking (tied to
-		// billing-period reports) but not a per-entry locked flag here.
-		Locked: false,
+		Locked:      false,
 	}
 }
 

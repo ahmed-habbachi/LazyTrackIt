@@ -19,7 +19,7 @@ func entryColumns(totalWidth int) []table.Column {
 		durWidth  = 9
 		projWidth = 18
 		numCols   = 6
-		cellPad   = 2 // table.DefaultStyles() pads each cell 1 space per side
+		cellPad   = 2
 	)
 	fixed := dateWidth + fromWidth + toWidth + durWidth + projWidth + numCols*cellPad
 	descWidth := totalWidth - fixed
@@ -172,7 +172,11 @@ func (m Model) viewList() string {
 	rangeLabel := fmt.Sprintf("%s – %s", m.weekStart.Format("Jan 2"), m.weekStart.AddDate(0, 0, 6).Format("Jan 2, 2006"))
 	weekPill := pillStyle.Render("📅 " + rangeLabel)
 	totalPill := pillAccentStyle.Render(fmt.Sprintf("⏱ %s logged", formatDuration(m.totalWeekDuration())))
-	b.WriteString(weekPill + " " + totalPill + " " + m.expectedPill() + "\n\n")
+	pills := weekPill + " " + totalPill + " " + m.expectedPill()
+	if att := m.attendancePill(); att != "" {
+		pills += " " + att
+	}
+	b.WriteString(pills + "\n\n")
 
 	if len(m.entries) == 0 {
 		b.WriteString(subtleStyle.Render("No time entries for this week. Press 'n' to add one.") + "\n")
@@ -184,14 +188,18 @@ func (m Model) viewList() string {
 		b.WriteString("\n" + okStyle.Render("✓ "+m.status))
 	}
 
-	help := "[n] new  [e] edit  [x/del] delete  [r] refresh  [←/→] week  [t] today  [q] quit"
-	if len(m.providerNames) > 1 {
-		help = "[n] new  [e] edit  [x/del] delete  [r] refresh  [←/→] week  [t] today  [p] providers  [q] quit"
+	help := "[n] new  [e] edit  [x/del] delete  [r] refresh  [←/→] week  [t] today"
+	if m.attendance() != nil {
+		help += "  [c] check in/out"
 	}
+	if len(m.providerNames) > 1 {
+		help += "  [p] providers"
+	}
+	help += "  [q] quit"
 	b.WriteString("\n" + helpStyle.Render(help))
 
 	if m.updateNotice != "" {
-		b.WriteString("\n" + subtleStyle.Render("⬆ "+m.updateNotice))
+		b.WriteString("\n" + subtleStyle.Render(m.updateNotice))
 	}
 
 	return sectionStyle.Render(b.String())

@@ -30,7 +30,7 @@ type Tag struct {
 // Member identifies the authenticated user within the backend.
 type Member struct {
 	ID       string
-	UserID   string // backend's opaque per-user identifier, distinct from ID
+	UserID   string
 	FullName string
 	Username string
 	Email    string
@@ -72,10 +72,10 @@ func (e TimeEntry) Duration() time.Duration {
 // request in a browser). Its fields are deliberately generic so any auth
 // method can populate them, not just OAuth device flow.
 type LoginPrompt struct {
-	Message string        // instructions to show, e.g. "Open this URL and enter the code below"
-	URL     string        // if set, a link the UI should try to open automatically
-	Code    string        // if set, a short code the user enters at URL
-	Expires time.Duration // if nonzero, how long Code/URL stay valid
+	Message string
+	URL     string
+	Code    string
+	Expires time.Duration
 }
 
 // Provider is the backend-agnostic interface the UI depends on.
@@ -116,4 +116,52 @@ type Provider interface {
 
 	// DeleteTimeEntry removes an entry.
 	DeleteTimeEntry(ctx context.Context, e TimeEntry) error
+}
+
+// WorkLocation is a place a member can check in at (e.g. office, home).
+type WorkLocation struct {
+	ID    string
+	Name  string
+	Color string
+}
+
+// AttendanceSession is one check-in, open until CheckOut is set.
+type AttendanceSession struct {
+	ID               string
+	WorkLocationID   string
+	WorkLocationName string
+	CheckIn          time.Time
+	CheckOut         time.Time
+	Note             string
+}
+
+// Open reports whether the session hasn't been checked out of yet.
+func (s AttendanceSession) Open() bool { return s.CheckOut.IsZero() }
+
+// Attendance is an optional capability a Provider may implement to support
+// checking in and out of a work location. The UI type-asserts for it, and
+// only offers check-in/out when AttendanceEnabled also reports true (it's
+// opt-in per provider in the config, since not every deployment of a
+// backend that could support it actually does).
+type Attendance interface {
+	// AttendanceEnabled reports whether check-in/out is turned on for this
+	// provider.
+	AttendanceEnabled() bool
+
+	// ListWorkLocations returns the active locations a member can check in at.
+	ListWorkLocations(ctx context.Context) ([]WorkLocation, error)
+
+	// LastWorkLocation returns the ID of the location the member most
+	// recently checked in at, or "" if they never have.
+	LastWorkLocation(ctx context.Context) (string, error)
+
+	// AttendanceStatus returns the member's open session, or nil if they're
+	// not currently checked in.
+	AttendanceStatus(ctx context.Context) (*AttendanceSession, error)
+
+	// CheckIn opens a new session at workLocationID.
+	CheckIn(ctx context.Context, workLocationID, note string) (AttendanceSession, error)
+
+	// CheckOut closes session s. An empty note keeps the one given at check-in.
+	CheckOut(ctx context.Context, s AttendanceSession, note string) (AttendanceSession, error)
 }

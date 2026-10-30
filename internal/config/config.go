@@ -18,12 +18,18 @@ type ProviderConfig struct {
 	Type    string    `yaml:"type"`
 	BaseURL string    `yaml:"base_url"`
 	Auth    yaml.Node `yaml:"auth"`
+
+	// Attendance turns on check-in/check-out for this provider. It's opt-in
+	// because only some provider types support it (see
+	// provider.Attendance), and not every deployment of those uses it.
+	Attendance bool `yaml:"attendance"`
 }
 
 // Config is the root configuration document.
 type Config struct {
 	ActiveProvider string                    `yaml:"active_provider"`
 	Providers      map[string]ProviderConfig `yaml:"providers"`
+
 	// CheckForUpdates controls the startup check against GitHub releases.
 	// A pointer so a missing key defaults to enabled (see UpdatesEnabled)
 	// without an explicit "check_for_updates: true" in every config file.
@@ -95,6 +101,9 @@ providers:
         - openid
         - profile
         - offline_access
+    # Enable check-in/check-out (press 'c' in the app). Only TrackIt
+    # 4.0.0+ supports it; leave it off for deployments that don't use it.
+    # attendance: true
 
   # Add as many more providers as you like, each under its own key, and
   # press 'p' in the app to switch between them. For example, a second

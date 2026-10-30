@@ -2,10 +2,8 @@ package trackit
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
-	"strings"
 
 	"github.com/ahmed-habbachi/lazytrackit/internal/provider"
 )
@@ -14,9 +12,10 @@ import (
 // per the project's established wire-format quirks (color fields lying
 // about their type too), it's decoded loosely rather than trusted outright.
 type projectTagDto struct {
-	TagID    looseString `json:"tagId"`
-	TagName  string      `json:"tagName"`
-	TagColor looseString `json:"tagColor"`
+	TagID       looseString `json:"tagId"`
+	TagName     string      `json:"tagName"`
+	TagColor    looseString `json:"tagColor"`
+	IsSystemTag bool        `json:"isSystemTag"`
 }
 
 type projectTagListVm struct {
@@ -40,56 +39,26 @@ type tagListVm struct {
 }
 
 // ListTags returns the tags usable on the given project: the project's own
-// tags plus every system tag (which applies across all projects). An empty
-// projectID (no project selected/available yet) skips the project-specific
-// lookup but still returns system tags.
+// tags plus every system tag (which applies across all projects). Since
+// TrackIt 4.0.0, GET /api/Tags/GetByProject/{id} returns both itself. An
+// empty projectID (no project selected/available yet) falls back to just the
+// system tags from the catalogue-wide GET /api/Tags.
 func (c *Client) ListTags(ctx context.Context, projectID string) ([]provider.Tag, error) {
-	projectTags, err := c.listProjectTags(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	systemTags, err := c.listSystemTags(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	seen := make(map[string]bool, len(projectTags))
-	out := make([]provider.Tag, 0, len(projectTags)+len(systemTags))
-	for _, t := range projectTags {
-		seen[t.ID] = true
-		out = append(out, t)
-	}
-	for _, t := range systemTags {
-		if seen[t.ID] {
-			continue
-		}
-		out = append(out, t)
-	}
-	return out, nil
-}
-
-func (c *Client) listProjectTags(ctx context.Context, projectID string) ([]provider.Tag, error) {
 	if projectID == "" {
-		return nil, nil
+		return c.listSystemTags(ctx)
 	}
 	path := fmt.Sprintf("/api/Tags/GetByProject/%s", url.PathEscape(projectID))
 	var vm projectTagListVm
 	if err := c.doJSON(ctx, "GET", path, nil, &vm); err != nil {
-		// TrackIt answers a project with no tags defined with a 500 (not a
-		// 404), worded as "... not found" — that's an empty result, not a
-		// real failure, so don't surface it as one.
-		var apiErr *APIError
-		if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Error()), "not found") {
-			return nil, nil
-		}
 		return nil, err
 	}
 	out := make([]provider.Tag, 0, len(vm.ProjectTags))
 	for _, t := range vm.ProjectTags {
 		out = append(out, provider.Tag{
-			ID:    string(t.TagID),
-			Name:  t.TagName,
-			Color: string(t.TagColor),
+			ID:       string(t.TagID),
+			Name:     t.TagName,
+			Color:    string(t.TagColor),
+			IsSystem: t.IsSystemTag,
 		})
 	}
 	return out, nil

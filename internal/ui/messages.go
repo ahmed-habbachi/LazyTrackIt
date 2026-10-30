@@ -37,3 +37,13 @@ type tagsLoadedMsg struct {
 // downloaded, and installed in place of the running executable. It'll be
 // used the next time the app starts.
 type updateInstalledMsg struct{ version string }
+
+// updateBlockedMsg reports that self-update can never succeed from this
+// install location, because dir (the directory holding the running
+// executable) isn't writable by the current user.
+type updateBlockedMsg struct{ dir string }
+
+// clearStatusMsg asks the handler to clear m.status, but only if seq still
+// matches m.statusSeq — i.e. no newer status was set in the meantime, which
+// would otherwise get wiped out by this stale timer.
+type clearStatusMsg struct{ seq int }

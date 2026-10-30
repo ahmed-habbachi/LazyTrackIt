@@ -7,7 +7,7 @@ func TestTimeFieldTypeDigitHour(t *testing.T) {
 		name        string
 		digits      []int
 		wantHour    int
-		wantAdvance bool // segment should have moved on to minutes
+		wantAdvance bool
 	}{
 		{"two digits 21", []int{2, 1}, 21, true},
 		{"two digits 05", []int{0, 5}, 5, true},
@@ -38,7 +38,7 @@ func TestTimeFieldTypeDigitHour(t *testing.T) {
 func TestTimeFieldTypeDigitMinute(t *testing.T) {
 	tf := newTimeField(0)
 	tf.typeDigit(1)
-	tf.typeDigit(0) // hour = 10, auto-advanced to minute segment
+	tf.typeDigit(0)
 	if tf.segment != 1 {
 		t.Fatalf("expected to have advanced to minute segment, segment=%d", tf.segment)
 	}
@@ -55,7 +55,7 @@ func TestTimeFieldTypeDigitMinute(t *testing.T) {
 func TestTimeFieldRetypeReplacesRatherThanAppends(t *testing.T) {
 	tf := newTimeField(9*60 + 30)
 	tf.segment = 0
-	tf.entered = 0 // as if freshly (re)focused
+	tf.entered = 0
 
 	tf.typeDigit(2)
 	if got := tf.hour(); got != 2 {
@@ -64,7 +64,7 @@ func TestTimeFieldRetypeReplacesRatherThanAppends(t *testing.T) {
 }
 
 func TestTimeFieldStepWraps(t *testing.T) {
-	tf := newTimeField(0) // 00:00
+	tf := newTimeField(0)
 	tf.segment = 0
 	tf.step(-1)
 	if tf.hour() != 23 {
@@ -78,7 +78,7 @@ func TestTimeFieldStepWraps(t *testing.T) {
 		t.Errorf("hour wrap up = %d, want 0", tf.hour())
 	}
 
-	tf = newTimeField(59) // 00:59
+	tf = newTimeField(59)
 	tf.segment = 1
 	tf.step(1)
 	if tf.minute() != 0 {

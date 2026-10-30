@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-// repoOwner and repoName identify the GitHub repository that publishes
-// LazyTrackIt releases (see .github/workflows/release.yml).
 const (
 	repoOwner = "ahmed-habbachi"
 	repoName  = "LazyTrackIt"
@@ -36,8 +34,6 @@ func fetchLatestRelease(ctx context.Context) (*release, error) {
 	if err != nil {
 		return nil, err
 	}
-	// GitHub's API rejects requests with no User-Agent, and this header
-	// pins the response shape to the version this code was written against.
 	req.Header.Set("User-Agent", "lazytrackit-updater")
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")

@@ -45,10 +45,6 @@ func (e *APIError) extractMessage() string {
 		return ""
 	}
 
-	// ASP.NET's ValidationProblemDetails puts the generic summary in Title
-	// ("One or more validation errors occurred.") and the actually useful,
-	// per-field reasons in Errors, so prefer those when present instead of
-	// surfacing just the uninformative summary.
 	if len(fields.Errors) > 0 {
 		keys := make([]string, 0, len(fields.Errors))
 		for k := range fields.Errors {

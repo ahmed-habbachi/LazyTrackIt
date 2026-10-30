@@ -23,7 +23,7 @@ import (
 // TrackIt's own shape for config.ProviderConfig.Auth; a different provider
 // would define its own (e.g. a bare API key).
 type AuthConfig struct {
-	Issuer       string   `yaml:"issuer"` // e.g. https://auth.yourcompany.com/realms/yourrealm
+	Issuer       string   `yaml:"issuer"`
 	ClientID     string   `yaml:"client_id"`
 	ClientSecret string   `yaml:"client_secret,omitempty"`
 	Scopes       []string `yaml:"scopes,omitempty"`
@@ -35,6 +35,8 @@ type Client struct {
 	baseURL string
 	cfg     AuthConfig
 	http    *http.Client
+
+	attendance bool
 
 	mu     sync.Mutex
 	auth   *auth.Client
@@ -50,10 +52,11 @@ func New(name string, cfg config.ProviderConfig) (*Client, error) {
 		return nil, fmt.Errorf("decoding auth config for provider %q: %w", name, err)
 	}
 	return &Client{
-		name:    name,
-		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
-		cfg:     authCfg,
-		http:    &http.Client{Timeout: 30 * time.Second},
+		name:       name,
+		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
+		cfg:        authCfg,
+		http:       &http.Client{Timeout: 30 * time.Second},
+		attendance: cfg.Attendance,
 	}, nil
 }
 
@@ -209,7 +212,8 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 	if resp.StatusCode == http.StatusNoContent {
 		return nil
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil && err != io.EOF {
 		return fmt.Errorf("%s %s: decoding response: %w", method, path, err)
 	}
 	return nil

@@ -28,20 +28,27 @@ const (
 	screenForm
 	screenConfirmDelete
 	screenProviderPicker
+	screenAttendance
 	screenError
 )
 
 const requestTimeout = 20 * time.Second
 
+// statusDisplayTime is how long an informational status message (e.g.
+// "✓ Entry created.") stays on screen before it's cleared automatically.
+const statusDisplayTime = 5 * time.Second
+
 // Model is the root Bubble Tea model for LazyTrackIt.
 type Model struct {
-	providers          map[string]provider.Provider
-	providerNames      []string // sorted, for stable display order
+	providers map[string]provider.Provider
+	// providerNames is sorted, for stable display order.
+	providerNames      []string
 	activeProviderName string
-	providerCursor     int // selection while screenProviderPicker is shown
-	prov               provider.Provider
-	events             chan tea.Msg
-	checkForUpdates    bool
+	// providerCursor is the selection while screenProviderPicker is shown.
+	providerCursor  int
+	prov            provider.Provider
+	events          chan tea.Msg
+	checkForUpdates bool
 
 	screen  screen
 	spinner spinner.Model
@@ -60,6 +67,14 @@ type Model struct {
 	form         *entryForm
 	deleteTarget *provider.TimeEntry
 
+	// attendanceSession is the open check-in session (nil if checked out);
+	// only used when the active provider supports and enables attendance
+	// (see Model.attendance).
+	attendanceSession *provider.AttendanceSession
+	attendanceLoaded  bool
+	attendanceErr     error
+	attendanceForm    *attendanceForm
+
 	// lastDefaults remembers the project/tags most recently used to create
 	// an entry, so a new entry defaults to them instead of starting blank.
 	lastDefaults config.LastEntryDefaults
@@ -67,10 +82,15 @@ type Model struct {
 	err    error
 	status string
 
-	// updateNotice, once set, is shown on the list screen to report that a
-	// newer release was downloaded and installed in the background. It's
-	// purely informational: the install already happened, this just lets
-	// the user know a restart will pick it up.
+	// statusSeq increments every time status is set, so a pending
+	// clearStatusMsg can tell whether it's still the one that should clear
+	// it or whether a newer status has since replaced it.
+	statusSeq int
+
+	// updateNotice, once set, is shown on the list screen: either that a
+	// newer release was downloaded and installed in the background (a
+	// restart will pick it up), or that self-update can never work from
+	// this install location at all (see updateBlockedMsg).
 	updateNotice string
 }
 
@@ -100,8 +120,6 @@ func New(providers map[string]provider.Provider, names []string, active string, 
 		Background(colorAccent)
 	t.SetStyles(ts)
 
-	// A missing or unreadable state file just means no remembered
-	// defaults yet; it's not worth failing startup over.
 	lastDefaults, _ := config.LoadLastEntryDefaults(active)
 
 	return Model{
@@ -129,7 +147,6 @@ func startOfDay(t time.Time) time.Time {
 
 func startOfWeek(t time.Time) time.Time {
 	t = startOfDay(t)
-	// time.Weekday: Sunday=0 ... Saturday=6. We want Monday-start weeks.
 	offset := (int(t.Weekday()) + 6) % 7
 	return t.AddDate(0, 0, -offset)
 }
@@ -138,6 +155,18 @@ func waitForEvent(events chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		return <-events
 	}
+}
+
+// setStatus sets a status message and returns a command that clears it again
+// after statusDisplayTime, unless a newer status has been set in the
+// meantime.
+func (m *Model) setStatus(s string) tea.Cmd {
+	m.status = s
+	m.statusSeq++
+	seq := m.statusSeq
+	return tea.Tick(statusDisplayTime, func(time.Time) tea.Msg {
+		return clearStatusMsg{seq: seq}
+	})
 }
 
 // Init kicks off authentication (if needed), the initial data load, and (if
@@ -158,11 +187,13 @@ func (m Model) checkForUpdate() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	newVersion, ok := update.CheckAndApply(ctx, version.Version)
-	if !ok {
-		return
+	res := update.CheckAndApply(ctx, version.Version)
+	switch {
+	case res.Installed:
+		m.events <- updateInstalledMsg{version: res.NewVersion}
+	case res.Unwritable != "":
+		m.events <- updateBlockedMsg{dir: res.Unwritable}
 	}
-	m.events <- updateInstalledMsg{version: newVersion}
 }
 
 // bootstrap runs in its own goroutine: logs in if necessary, then loads the
@@ -300,6 +331,7 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hasMember = true
 		m.projects = msg.projects
 		go m.loadEntries(m.weekStart)
+		go m.loadAttendanceStatus()
 		return m, nil
 
 	case entriesLoadedMsg:
@@ -320,26 +352,23 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenError
 			return m, nil
 		}
+		var statusCmd tea.Cmd
 		if msg.wasEdit {
-			m.status = "Entry updated."
+			statusCmd = m.setStatus("Entry updated.")
 		} else {
-			m.status = "Entry created."
+			statusCmd = m.setStatus("Entry created.")
 			m.lastDefaults = config.LastEntryDefaults{
 				ProjectID: msg.entry.ProjectID,
 				TagIDs:    msg.entry.TagIDs,
 			}
-			// Best-effort: losing the remembered defaults isn't worth
-			// surfacing an error over.
 			_ = config.SaveLastEntryDefaults(m.prov.Name(), m.lastDefaults)
 		}
 		m.form = nil
 		m.screen = screenLoading
 		go m.loadEntries(m.weekStart)
-		return m, nil
+		return m, statusCmd
 
 	case tagsLoadedMsg:
-		// Discard a response for a project the form has since moved away
-		// from (e.g. the user flipped projects again before it arrived).
 		if m.form != nil && m.form.currentProjectID() == msg.projectID {
 			m.form.setAvailableTags(msg.tags, msg.err)
 		}
@@ -351,14 +380,27 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenError
 			return m, nil
 		}
-		m.status = "Deleted."
+		cmd := m.setStatus("Deleted.")
 		m.deleteTarget = nil
 		m.screen = screenLoading
 		go m.loadEntries(m.weekStart)
-		return m, nil
+		return m, cmd
 
 	case updateInstalledMsg:
-		m.updateNotice = fmt.Sprintf("Update %s installed — restart LazyTrackIt to use it.", msg.version)
+		m.updateNotice = fmt.Sprintf("⬆ Update %s installed — restart LazyTrackIt to use it.", msg.version)
+		return m, nil
+
+	case updateBlockedMsg:
+		m.updateNotice = fmt.Sprintf("⚠ Installed at %s, which needs elevated permissions to write to — auto-update will never work here. Move the lazytrackit binary to ~/.local/bin (or another folder you own) to enable it.", msg.dir)
+		return m, nil
+
+	case attendanceStatusMsg, checkInOptionsMsg, attendanceSavedMsg:
+		return m.handleAttendanceMsg(msg)
+
+	case clearStatusMsg:
+		if msg.seq == m.statusSeq {
+			m.status = ""
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -416,6 +458,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case screenProviderPicker:
 		return m.handleProviderPickerKey(msg)
+
+	case screenAttendance:
+		return m.handleAttendanceKey(msg)
 	}
 
 	return m, nil
@@ -460,14 +505,14 @@ func (m Model) switchProvider(name string) (tea.Model, tea.Cmd) {
 	m.entries = nil
 	m.form = nil
 	m.deleteTarget = nil
+	m.attendanceSession = nil
+	m.attendanceLoaded = false
+	m.attendanceErr = nil
+	m.attendanceForm = nil
 	m.err = nil
 	m.status = ""
 	m.loginPrompt = nil
-	// A missing or unreadable state file just means no remembered defaults
-	// yet for this provider; it's not worth surfacing an error over.
 	m.lastDefaults, _ = config.LoadLastEntryDefaults(name)
-	// Best-effort: if this fails, the only consequence is falling back to
-	// active_provider from the config file on the next run.
 	_ = config.SaveLastProvider(name)
 
 	m.screen = screenLoading
@@ -487,8 +532,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "e", "enter":
 		if e := m.selectedEntry(); e != nil {
 			if e.Locked {
-				m.status = "This entry is locked and cannot be edited."
-				return m, nil
+				return m, m.setStatus("This entry is locked and cannot be edited.")
 			}
 			m.form = newEntryForm(e, m.projects, m.weekStart, m.lastDefaults, nil)
 			m.screen = screenForm
@@ -498,8 +542,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x", "delete":
 		if e := m.selectedEntry(); e != nil {
 			if e.Locked {
-				m.status = "This entry is locked and cannot be deleted."
-				return m, nil
+				return m, m.setStatus("This entry is locked and cannot be deleted.")
 			}
 			cp := *e
 			m.deleteTarget = &cp
@@ -509,7 +552,10 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.screen = screenLoading
 		go m.loadEntries(m.weekStart)
+		go m.loadAttendanceStatus()
 		return m, nil
+	case "c":
+		return m.startAttendance()
 	case "[", "left":
 		m.weekStart = m.weekStart.AddDate(0, 0, -7)
 		m.screen = screenLoading
@@ -527,8 +573,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "p":
 		if len(m.providerNames) < 2 {
-			m.status = "Only one provider configured."
-			return m, nil
+			return m, m.setStatus("Only one provider configured.")
 		}
 		m.providerCursor = indexOf(m.providerNames, m.activeProviderName)
 		m.screen = screenProviderPicker
@@ -572,6 +617,8 @@ func (m Model) View() string {
 		return m.viewConfirmDelete()
 	case screenProviderPicker:
 		return m.viewProviderPicker()
+	case screenAttendance:
+		return m.viewAttendance()
 	default:
 		return m.viewList()
 	}

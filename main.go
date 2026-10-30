@@ -64,8 +64,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// Best-effort: if this fails, the only consequence is falling back to
-	// active_provider from the config file on the next run.
 	_ = config.SaveLastProvider(active)
 
 	p := tea.NewProgram(ui.New(providers, names, active, cfg.UpdatesEnabled()), tea.WithAltScreen())
@@ -100,6 +98,11 @@ func buildProviders(cfg *config.Config) (map[string]provider.Provider, []string,
 			providers[name] = prov
 		default:
 			return nil, nil, fmt.Errorf("unknown provider type %q for provider %q", pcfg.Type, name)
+		}
+		if pcfg.Attendance {
+			if _, ok := providers[name].(provider.Attendance); !ok {
+				return nil, nil, fmt.Errorf("provider %q has attendance enabled, but type %q doesn't support check-in/check-out", name, pcfg.Type)
+			}
 		}
 		names = append(names, name)
 	}

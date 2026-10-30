@@ -22,7 +22,6 @@ func (s *looseString) UnmarshalJSON(data []byte) error {
 		*s = looseString(str)
 		return nil
 	}
-	// Numbers, bools, etc: the raw JSON token is already a fine string form.
 	*s = looseString(data)
 	return nil
 }

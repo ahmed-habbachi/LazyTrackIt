@@ -184,6 +184,36 @@ func writeTemp(r io.Reader, perm os.FileMode) (string, error) {
 	return out.Name(), nil
 }
 
+// currentExecutable returns the running executable's path with symlinks
+// resolved, so the update replaces the real file rather than a link to it.
+func currentExecutable() (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(exePath)
+}
+
+// installDirWritable reports whether the current user can create files in
+// the directory holding the running executable, by creating and removing a
+// probe file there.
+func installDirWritable() (dir string, writable bool, err error) {
+	exePath, err := currentExecutable()
+	if err != nil {
+		return "", false, err
+	}
+	dir = filepath.Dir(exePath)
+
+	probe, err := os.CreateTemp(dir, ".lazytrackit-writetest-*")
+	if err != nil {
+		return dir, false, nil
+	}
+	name := probe.Name()
+	probe.Close()
+	os.Remove(name)
+	return dir, true, nil
+}
+
 // install replaces the currently running executable with newBinaryPath.
 // It stages the new file next to the current one (so the final swap is a
 // same-filesystem rename, not a cross-device copy) and keeps a ".old"
@@ -194,11 +224,7 @@ func writeTemp(r io.Reader, perm os.FileMode) (string, error) {
 // loader has already mapped its contents into memory), which is the same
 // trick most self-updating tools rely on.
 func install(newBinaryPath string) error {
-	exePath, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	exePath, err = filepath.EvalSymlinks(exePath)
+	exePath, err := currentExecutable()
 	if err != nil {
 		return err
 	}
@@ -210,19 +236,17 @@ func install(newBinaryPath string) error {
 	}
 
 	backup := exePath + ".old"
-	os.Remove(backup) // best-effort: drop any leftover from a previous update
+	os.Remove(backup)
 
 	if err := os.Rename(exePath, backup); err != nil {
 		os.Remove(staged)
 		return fmt.Errorf("renaming current executable aside: %w", err)
 	}
 	if err := os.Rename(staged, exePath); err != nil {
-		// Best-effort rollback so a failed update doesn't leave the user
-		// without a working binary at all.
 		_ = os.Rename(backup, exePath)
 		return fmt.Errorf("installing new executable: %w", err)
 	}
-	_ = os.Remove(backup) // best-effort; fine if it lingers, e.g. still open on some platform
+	_ = os.Remove(backup)
 	return nil
 }
 

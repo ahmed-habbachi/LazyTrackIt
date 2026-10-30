@@ -14,9 +14,6 @@ import (
 
 type formField int
 
-// Field order matches the visual top-to-bottom layout in viewForm (WHAT
-// group, then WHEN group) so tab/shift+tab moves the way it looks like it
-// should instead of jumping between groups.
 const (
 	fieldProject formField = iota
 	fieldDescription
@@ -28,7 +25,7 @@ const (
 )
 
 type entryForm struct {
-	editingID  string // "" => creating a new entry
+	editingID  string
 	projects   []provider.Project
 	projectIdx int
 
@@ -178,9 +175,9 @@ func resolveTagIDs(tokens []string, available []provider.Tag) ([]string, error) 
 // whenever the year or month changes, so the field can never hold an
 // invalid date.
 type dateField struct {
-	value   time.Time // normalized date, always midnight
-	segment int       // 0 = year, 1 = month, 2 = day
-	entered int       // digits typed into the active segment since it was last (re)focused
+	value   time.Time
+	segment int
+	entered int
 }
 
 // newDateField normalizes t to midnight UTC, regardless of t's own location.
@@ -387,9 +384,9 @@ func (d dateField) view(focused bool) string {
 // into it, so fixing a time never requires backspacing first. Values are
 // clamped as they're typed, so the field can never hold an invalid time.
 type timeField struct {
-	minutes int // 0..1439, minutes after midnight
-	segment int // 0 = hour, 1 = minute
-	entered int // digits typed into the active segment since it was last (re)focused: 0, 1, or 2
+	minutes int
+	segment int
+	entered int
 }
 
 func newTimeField(minutes int) timeField {
@@ -507,9 +504,6 @@ func (t *timeField) typeDigit(d int) {
 	}
 	t.setCur(val)
 
-	// Advance once the segment is unambiguously done: either two digits
-	// have been entered, or even a trailing "0" would overflow (e.g. a
-	// leading "3" in an hour can't be followed by anything valid).
 	if t.entered == 2 || val*10 > max {
 		if t.segment == 0 {
 			t.segment = 1
@@ -733,10 +727,6 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// "h"/"l" are only vim-style project-nav aliases while the Project field
-	// is focused; everywhere else they're ordinary letters the user may want
-	// to type (e.g. into Description or Tags), so they must fall through to
-	// the text input below instead of being swallowed here.
 	if f.focus == fieldProject && len(f.projects) > 0 {
 		switch msg.String() {
 		case "left", "h":
@@ -765,7 +755,6 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	idx := fieldToInputIndex(f.focus)
 	if idx < 0 {
-		// Arrow keys have no effect on non-text fields.
 		return m, nil
 	}
 	inputs := f.inputs()

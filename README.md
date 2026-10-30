@@ -19,24 +19,21 @@ tar -xzf lazytrackit_<version>_linux_<arch>.tar.gz
 ```
 
 `tar` preserves the executable bit, so no `chmod +x` should be needed. Put
-the extracted `lazytrackit` binary wherever you keep user-installed
-binaries:
+the extracted `lazytrackit` binary at `~/.local/bin/lazytrackit` — per-user,
+no root needed, and works out of the box if `~/.local/bin` is already on
+your `PATH` (most distros add it by default for login shells):
 
-- `~/.local/bin/lazytrackit` — per-user, no root needed; works out of the
-  box if `~/.local/bin` is already on your `PATH` (most distros add it by
-  default for login shells):
-
-  ```
-  mkdir -p ~/.local/bin && mv lazytrackit ~/.local/bin/
-  ```
-
-- `/usr/local/bin/lazytrackit` — system-wide, needs `sudo mv`:
-
-  ```
-  sudo mv lazytrackit /usr/local/bin/
-  ```
+```
+mkdir -p ~/.local/bin && mv lazytrackit ~/.local/bin/
+```
 
 Then run it with `lazytrackit` (if it's on your `PATH`) or the full path.
+
+Don't install it under a root-owned directory such as `/usr/local/bin`
+instead: auto-update (see below) runs as your regular user and can never
+write there, so you'd be stuck manually re-downloading every release. If
+LazyTrackIt ever does end up somewhere unwritable, it detects this and tells
+you so, rather than silently never updating.
 
 ### Windows
 
@@ -77,9 +74,14 @@ LazyTrackIt, and the app lets you know when that's ready with a line at the
 bottom of the entry list.
 
 If the check or install fails for any reason (offline, rate-limited, no
-write permission on the install directory, no build for your platform,
-etc.) it just stays quiet and you keep using the version you have — nothing
-is ever surfaced as an error.
+build for your platform, etc.) it just stays quiet and you keep using the
+version you have — nothing is ever surfaced as an error. The one exception
+is the install directory itself not being writable (e.g. LazyTrackIt lives
+under `/usr/local/bin`): that's a standing problem, not a transient one, so
+it's reported with a persistent line at the bottom of the entry list instead
+of staying silent. Every check's outcome — including a quiet no-op and why —
+is also appended to `update.log` in the config directory, for when you want
+to double check what actually happened.
 
 Binaries built with plain `go build`/`go run` (rather than a tagged release)
 don't have a version baked in, so they skip the check entirely. To disable
@@ -234,11 +236,34 @@ itself contains no account-specific configuration.
 - `r` — refresh
 - `[` / `]` — previous / next week
 - `t` — jump back to the current week
+- `c` — check in / check out (only when attendance is enabled, see below)
 - `p` — switch provider (only shown once more than one is configured)
 - `q` / `ctrl+c` — quit
 
 In the entry form: `tab`/`shift+tab` (or `↑`/`↓`) move between fields,
 `←`/`→` cycle the selected project, `enter` saves, `esc` cancels.
+
+## Check-in / check-out
+
+TrackIt 4.0.0+ also tracks attendance (checking in and out of a work
+location such as Office or Home). It's off by default, since not every
+provider type supports it; turn it on per provider in `config.yaml`:
+
+```yaml
+providers:
+  trackit:
+    type: trackit
+    attendance: true
+    # ...
+```
+
+The main list then shows whether you're checked in (and where, since when),
+and `c` opens a check-in form — pick a work location with `↑`/`↓` (it
+defaults to the one you used last), add an optional note, `enter` to
+confirm — or, while checked in, a check-out form with an optional note
+(left empty, the note from check-in is kept). Enabling `attendance` on a
+provider type that doesn't support it (Toggl, week booking) is rejected at
+startup.
 
 ## Using multiple providers
 
@@ -254,26 +279,163 @@ default on the next run, taking precedence over `active_provider` in
 remembered last-used project/tags, so switching back and forth doesn't
 require logging in again unless a provider's session has actually expired.
 
-## Wire-format notes
+## TrackIt wire-format notes
 
-The OpenAPI spec documents field *shapes* but not their exact semantics, so
-a couple of things were confirmed against a live account rather than just
-the spec:
+The OpenAPI spec documents field *shapes* but not always their semantics, so
+these were confirmed against a live account (TrackIt 4.0.0):
 
-- `timeFrom` / `timeTo` / `timeActual` are **seconds after midnight** (e.g.
-  `32400` = 09:00), not minutes as the field names might suggest. LazyTrackIt
-  converts to/from minutes-after-midnight at the API boundary in
-  `internal/provider/trackit/timeentries.go` (`secondsToMinutes` /
-  `minutesToSeconds`) so the rest of the app just deals in minutes.
-- `color` fields come back from this deployment as JSON numbers despite the
-  spec declaring them strings; `looseString` in
-  `internal/provider/trackit/json.go` accepts either.
+- `timeFrom` / `timeTo` / `timeActual` are **seconds after midnight** on the
+  entry's `date` (e.g. `32400` = 09:00), not minutes.
+- `date`, `checkInTime` and `checkOutTime` are .NET `DateTime`s, sometimes
+  serialized without a timezone; they're parsed as local time.
+- `color` fields were JSON numbers before 4.0.0 and are strings since;
+  `looseString` (`internal/provider/trackit/json.go`) accepts either.
+- `GET /api/Members/me` resolves the caller from the bearer token (use it,
+  not `/api/Members/ByUsername/{username}`). It leaves `userName` empty.
+- `GET /api/Tags/GetByProject/{id}` returns the project's tags **and** every
+  system tag (`isSystemTag`).
+- `GET /api/Attendance/me/status` answers "not checked in" with an empty
+  body, and `POST /api/Attendance/{id}/checkout` only keeps the check-in note
+  when `note` is omitted/null — an empty string wipes it.
+- Validation failures come back as ASP.NET `ValidationProblemDetails`;
+  `APIError` surfaces the per-field `errors` rather than the generic title.
 
-If something still looks off after creating/editing an entry, these two
-files are the places to check first.
+## Developing a provider
 
-## Adding another backend
+The UI (`internal/ui`) only ever talks to the `provider.Provider` interface
+in `internal/provider/provider.go`. A backend is a Go package implementing
+it, plus a line in `main.go` and a config entry. The three built-in
+providers are good templates for the two auth styles:
 
-Implement `provider.Provider` (see `internal/provider/provider.go`) in a new
-package, register it in `main.go`'s provider-type switch, and add a
-`providers.<name>` entry with a matching `type` to the config.
+| Provider | Auth | Notable differences |
+|---|---|---|
+| `internal/provider/trackit` | OIDC device-code flow (`internal/auth`), cached + refreshed tokens | project-scoped + system tags, locked entries, attendance |
+| `internal/provider/toggl` | static API token (HTTP Basic) | workspace-scoped, no locking, tags not tied to projects |
+| `internal/provider/weekbooking` | static API token (Bearer) | no start/end times (hours per ISO weekday), no tags, closed weeks |
+
+### 1. Package layout
+
+Create `internal/provider/<name>/` with, by convention:
+
+- `client.go` — `AuthConfig`, `Client`, `New`, `Name`, `IsAuthenticated`,
+  `Login`, and a `doJSON(ctx, method, path, body, out)` helper that adds
+  auth headers, encodes/decodes JSON and turns non-2xx responses into an
+  error.
+- `apierror.go` — an `APIError` type that pulls a readable message out of the
+  backend's error body (it's shown verbatim on the error screen and in
+  forms, so make it useful).
+- one file per resource (`members.go`/`me.go`, `projects.go`, `tags.go`,
+  `timeentries.go`) holding the wire DTOs (unexported, `json`-tagged
+  structs) and the conversion to/from the `provider` types.
+
+Keep wire types private to the package; only `provider.*` types cross the
+boundary.
+
+### 2. Constructor and config
+
+```go
+type AuthConfig struct {
+	APIToken string `yaml:"api_token"`
+}
+
+func New(name string, cfg config.ProviderConfig) (*Client, error) {
+	var authCfg AuthConfig
+	if err := cfg.Auth.Decode(&authCfg); err != nil {
+		return nil, fmt.Errorf("decoding auth config for provider %q: %w", name, err)
+	}
+	return &Client{name: name, baseURL: strings.TrimRight(cfg.BaseURL, "/"), cfg: authCfg, http: &http.Client{Timeout: 30 * time.Second}}, nil
+}
+```
+
+- `config.ProviderConfig` gives you `Type`, `BaseURL`, `Attendance` and a raw
+  `Auth` YAML node. The `auth:` block's shape is yours to define: decode it
+  into your own `AuthConfig`.
+- `New` must not do network I/O; the UI calls the provider later from
+  background goroutines.
+- `name` is the config key (e.g. `trackit2`), not the type. Use it as the
+  key for anything persisted per account (`auth.SaveTokens(name, …)`), since
+  several accounts of the same type can be configured side by side.
+
+Register the type in `buildProviders` in `main.go`:
+
+```go
+case "mybackend":
+	prov, err := mybackend.New(name, pcfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	providers[name] = prov
+```
+
+and add a commented example to `exampleConfig` in
+`internal/config/config.go` and a "Using … instead" section to this README.
+
+### 3. The `Provider` contract
+
+Every method gets a `context.Context` with a timeout (20s, 15min for
+`Login`); pass it to every HTTP request. Methods are called from goroutines,
+so guard any cached state (tokens, the current member) with a mutex.
+
+| Method | What the UI expects |
+|---|---|
+| `Name()` | The config key passed to `New`. Used to key per-provider state (last-used project/tags). |
+| `IsAuthenticated()` | Whether credentials are already available **without a network call**: a cached token file, or a configured API key. If false, the UI calls `Login` first. |
+| `Login(ctx, onPrompt)` | Obtain and persist credentials. Call `onPrompt(provider.LoginPrompt{Message, URL, Code, Expires})` only if the user has to do something out-of-band (the UI shows it and opens `URL` in a browser), then block until done or `ctx` expires. Static-token providers never call `onPrompt`; they just validate the token (e.g. by calling `Me`). |
+| `Me(ctx)` | The authenticated user. `ID` is what the UI later puts in `TimeEntry.MemberID`; `UserID` is any second backend identifier you need. `FullName`/`Email`/`Username` are display-only (`DisplayName()` falls back in that order) and may be empty. Cache the result if other calls need it. |
+| `ListProjects(ctx)` | Projects the user can book on. The UI offers every project returned (it doesn't filter on `Active`), so leave out ones that can't take time. `ClientName`/`Color` may be empty. |
+| `ListTags(ctx, projectID)` | Tags offered in the entry form for that project. `projectID` may be `""` (no project yet). Set `IsSystem` for tags valid on every project. Backends without tags return an empty slice, not an error. |
+| `ListTimeEntries(ctx, memberID, from, to)` | The user's entries whose date is within `[from, to]`, both inclusive local-midnight dates (the UI asks for Monday–Sunday of the shown week). Return them in display order. |
+| `CreateTimeEntry(ctx, e)` | Create `e` (`ID` is empty) and return it as stored. |
+| `UpdateTimeEntry(ctx, e)` | Replace the entry with `e.ID` by `e` (every field is set, not a patch) and return it as stored. |
+| `DeleteTimeEntry(ctx, e)` | Delete it. You get the whole entry in case the API needs more than the ID. |
+
+`provider.TimeEntry` field notes:
+
+- IDs are strings everywhere; convert to/from integer wire IDs at the
+  boundary (`strconv`) and return an error for an unparsable one.
+- `Start`/`End` are local `time.Time`s on the same day; `Duration()` is
+  `End-Start`. If the backend only stores a duration, anchor `Start` at the
+  day's midnight and set `End = Start + duration` (see `weekbooking`).
+  If it has running timers, report them with `End = Start` rather than a zero
+  `End`.
+- `ProjectName` is shown in the list as-is; fill it from the response.
+- `Locked` entries are shown with a 🔒 and can't be edited or deleted from
+  the UI; set it for anything the backend would refuse to change (locked
+  periods, closed weeks).
+- `TagIDs` are the IDs from `ListTags`.
+- `MemberID` is usually redundant: if the API scopes everything to the token's
+  user (e.g. `/me/...` routes), ignore the parameter.
+
+Errors are shown to the user verbatim (error screen, with `r` to retry), so
+include the method and path and the backend's own message, as `APIError`
+does in the existing providers.
+
+### 4. Optional: check-in / check-out
+
+To support attendance, also implement `provider.Attendance`:
+
+| Method | What the UI expects |
+|---|---|
+| `AttendanceEnabled()` | Return `cfg.Attendance` from `New`. The feature is only shown when this is true. |
+| `ListWorkLocations(ctx)` | Active locations, in display order. |
+| `LastWorkLocation(ctx)` | ID of the most recently used location, or `""`. Used to preselect it. |
+| `AttendanceStatus(ctx)` | The open session, or `nil, nil` when not checked in. |
+| `CheckIn(ctx, workLocationID, note)` | Open a session and return it. |
+| `CheckOut(ctx, session, note)` | Close it and return it with `CheckOut` set. Empty `note` means keep the existing one. |
+
+Add `var _ provider.Attendance = (*Client)(nil)` so a signature drift fails
+the build. `main.go` rejects `attendance: true` on any provider that doesn't
+implement the interface.
+
+### 5. Trying it out
+
+```sh
+go build ./... && go vet ./...
+go test ./...
+go run .
+```
+
+Add a `providers.<name>` entry with `type: <your type>` to your
+`config.yaml` and press `p` in the app to switch to it. Pure helpers
+(date/ID conversion, DTO mapping) are the easiest things to unit-test,
+since they need no server.
