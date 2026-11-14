@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -18,7 +19,10 @@ import (
 func newTray(app *application.App, window *application.WebviewWindow, svc *Service) *application.SystemTray {
 	tray := app.SystemTray.New()
 	tray.SetIcon(trayIcon)
-	tray.SetTooltip("LazyTrackIt")
+	// On Linux the tooltip's title is the tray label, which Wails fills with
+	// "Wails" when it's unset; on Windows the tooltip falls back to the
+	// label. Setting only the label shows "TrackIt" on both.
+	tray.SetLabel(trayLabel)
 
 	menu := app.NewMenu()
 	menu.Add("Open LazyTrackIt").OnClick(func(*application.Context) { showWindow(window) })
@@ -61,14 +65,14 @@ func newTray(app *application.App, window *application.WebviewWindow, svc *Servi
 
 	svc.mu.Lock()
 	svc.onAttendance = func(open *provider.AttendanceSession, enabled bool) {
-		label, action, tooltip := attendanceLabels(open, time.Now())
+		label, action, detail := attendanceLabels(open, time.Now())
 		if !enabled {
-			tooltip = "LazyTrackIt"
+			detail = ""
 		}
 		application.InvokeAsync(func() {
 			status.SetLabel(label).SetHidden(!enabled)
 			attendance.SetLabel(action).SetHidden(!enabled)
-			tray.SetTooltip(tooltip)
+			tray.SetTooltip(trayTooltip(detail, runtime.GOOS))
 			menu.Update()
 		})
 	}
@@ -82,15 +86,31 @@ func newTray(app *application.App, window *application.WebviewWindow, svc *Servi
 	return tray
 }
 
-// attendanceLabels renders the tray's status line, its check in/out action
-// and its tooltip for the open session (nil when checked out).
-func attendanceLabels(open *provider.AttendanceSession, now time.Time) (status, action, tooltip string) {
-	if open == nil {
-		return "Checked out", "Check in…", "LazyTrackIt — checked out"
+// trayLabel is the tray's name, shown as its tooltip title.
+const trayLabel = "TrackIt"
+
+// trayTooltip is the tooltip text for an attendance detail line ("" for
+// none). Linux shows the tray label as the tooltip's title above this text,
+// so the detail stands alone there; Windows has no title, so it's prefixed
+// with the name. An empty tooltip falls back to the label on Windows.
+func trayTooltip(detail, goos string) string {
+	if detail == "" || goos == "linux" {
+		return detail
 	}
-	since := open.CheckIn.Format("15:04")
+	return trayLabel + " — " + detail
+}
+
+// attendanceLabels renders the tray's status line, its check in/out action
+// and the tooltip's detail line for the open session (nil when checked out).
+func attendanceLabels(open *provider.AttendanceSession, now time.Time) (status, action, detail string) {
+	if open == nil {
+		return "Checked out", "Check in…", "Checked out"
+	}
+	// The provider may report the check-in in UTC; show it in local time,
+	// as the window does.
+	since := open.CheckIn.Local().Format("15:04")
 	elapsed := now.Sub(open.CheckIn).Round(time.Minute)
 	status = fmt.Sprintf("At %s since %s", open.WorkLocationName, since)
-	tooltip = fmt.Sprintf("LazyTrackIt — %s since %s (%dh%02dm)", open.WorkLocationName, since, int(elapsed.Hours()), int(elapsed.Minutes())%60)
-	return status, "Check out…", tooltip
+	detail = fmt.Sprintf("%s since %s (%dh%02dm)", open.WorkLocationName, since, int(elapsed.Hours()), int(elapsed.Minutes())%60)
+	return status, "Check out…", detail
 }

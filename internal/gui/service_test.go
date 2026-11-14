@@ -286,6 +286,28 @@ func TestAttendanceLabels(t *testing.T) {
 	}
 }
 
+func TestAttendanceLabelsUseLocalTime(t *testing.T) {
+	in := time.Date(2026, 11, 14, 15, 58, 0, 0, time.UTC)
+	status, _, _ := attendanceLabels(&provider.AttendanceSession{WorkLocationName: "Office", CheckIn: in}, in)
+	if want := "At Office since " + in.Local().Format("15:04"); status != want {
+		t.Errorf("status = %q, want %q", status, want)
+	}
+}
+
+func TestTrayTooltip(t *testing.T) {
+	cases := []struct{ detail, goos, want string }{
+		{"Office since 08:30 (1h35m)", "linux", "Office since 08:30 (1h35m)"},
+		{"Office since 08:30 (1h35m)", "windows", "TrackIt — Office since 08:30 (1h35m)"},
+		{"", "linux", ""},
+		{"", "windows", ""},
+	}
+	for _, c := range cases {
+		if got := trayTooltip(c.detail, c.goos); got != c.want {
+			t.Errorf("trayTooltip(%q, %q) = %q, want %q", c.detail, c.goos, got, c.want)
+		}
+	}
+}
+
 // gatedProv blocks ListTimeEntries / AttendanceStatus on per-call gates so
 // tests can force responses to arrive out of order.
 type gatedProv struct {
