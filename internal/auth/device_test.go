@@ -28,6 +28,25 @@ func TestRefreshRejectedSessionIsInvalidGrant(t *testing.T) {
 	}
 }
 
+func TestRefreshRevokedConsentIsInvalidGrant(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_scope","error_description":"Client no longer has requested consent from user"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(&Discovery{TokenEndpoint: srv.URL}, "client", "", nil)
+	_, err := c.RefreshTokens(context.Background(), "refresh-token")
+	if !errors.Is(err, ErrInvalidGrant) {
+		t.Fatalf("err = %v, want ErrInvalidGrant", err)
+	}
+	// The message names the server's real error, not invalid_grant.
+	if !strings.Contains(err.Error(), "invalid_scope") || !strings.Contains(err.Error(), "no longer has requested consent") {
+		t.Errorf("error lost its code or description: %v", err)
+	}
+}
+
 func TestOtherTokenErrorsAreNotInvalidGrant(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

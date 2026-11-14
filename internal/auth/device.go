@@ -133,8 +133,25 @@ var (
 	// ErrInvalidGrant means the server rejected the grant outright — for a
 	// refresh, that the session behind the refresh token is gone (expired,
 	// revoked, or the server was reset), so only a fresh login can help.
+	// It also covers invalid_scope, which Keycloak returns when the user's
+	// consent for the requested scopes was revoked ("Client no longer has
+	// requested consent from user"): the refresh token can't recover that
+	// either.
 	ErrInvalidGrant = errors.New("invalid_grant")
 )
+
+// rejectedGrantError reports a token error that only a fresh login can fix.
+// It matches ErrInvalidGrant with errors.Is but keeps the server's own error
+// code in its message, so invalid_scope isn't shown as invalid_grant.
+type rejectedGrantError struct {
+	code, description string
+}
+
+func (e *rejectedGrantError) Error() string {
+	return fmt.Sprintf("token endpoint error: %s (%s)", e.code, e.description)
+}
+
+func (e *rejectedGrantError) Is(target error) bool { return target == ErrInvalidGrant }
 
 func (c *Client) doTokenRequest(ctx context.Context, form url.Values) (*Tokens, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Discovery.TokenEndpoint, strings.NewReader(form.Encode()))
@@ -170,8 +187,8 @@ func (c *Client) doTokenRequest(ctx context.Context, form url.Values) (*Tokens, 
 			return nil, ErrExpiredToken
 		case "access_denied":
 			return nil, ErrAccessDenied
-		case "invalid_grant":
-			return nil, fmt.Errorf("token endpoint error: %w (%s)", ErrInvalidGrant, raw.ErrorDescription)
+		case "invalid_grant", "invalid_scope":
+			return nil, &rejectedGrantError{code: raw.Error, description: raw.ErrorDescription}
 		default:
 			return nil, fmt.Errorf("token endpoint error: %s (%s)", raw.Error, raw.ErrorDescription)
 		}
