@@ -69,6 +69,8 @@ jobs:
   #   - Linux: needs cgo plus the GTK 3 / WebKitGTK 4.1 development
   #     packages on the runner (Debian/Ubuntu: libgtk-3-dev
   #     libwebkit2gtk-4.1-dev), so it's only built natively for amd64.
+  #     The gtk3 build tag selects Wails' GTK 3 / WebKitGTK 4.1 backend;
+  #     without it Wails v3 links GTK 4 / WebKitGTK 6.0.
   build-gui:
     name: Build GUI ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: self-hosted
@@ -103,7 +105,7 @@ jobs:
           bin="lazytrackit-gui"
           if [ "${{ matrix.goos }}" = "windows" ]; then bin="lazytrackit-gui.exe"; fi
           version_pkg="github.com/ahmed-habbachi/lazytrackit/internal/version"
-          go build -trimpath -ldflags "-s -w ${{ matrix.ldflags }} -X ${version_pkg}.Version=${{ github.ref_name }}" -o "$work/$bin" ./cmd/lazytrackit-gui
+          go build -trimpath -tags gtk3 -ldflags "-s -w ${{ matrix.ldflags }} -X ${version_pkg}.Version=${{ github.ref_name }}" -o "$work/$bin" ./cmd/lazytrackit-gui
 
           mkdir -p dist
           # The "_desktop" suffix must match update.GUI.Variant. It keeps

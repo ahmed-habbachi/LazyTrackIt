@@ -218,14 +218,18 @@ Windows 11 and current Windows 10.
 ### Building it
 
 ```
-go build -o lazytrackit-gui ./cmd/lazytrackit-gui
+go build -tags gtk3 -o lazytrackit-gui ./cmd/lazytrackit-gui
 ```
 
 - **Windows**: no C compiler is needed, so it cross-compiles like the TUI.
   Add `-ldflags "-H windowsgui"` so no console window opens with it:
   `GOOS=windows go build -ldflags "-H windowsgui" -o lazytrackit-gui.exe ./cmd/lazytrackit-gui`.
 - **Linux**: this needs cgo and the dev packages (Debian/Ubuntu:
-  `sudo apt install build-essential libgtk-3-dev libwebkit2gtk-4.1-dev`).
+  `sudo apt install build-essential libgtk-3-dev libwebkit2gtk-4.1-dev`;
+  Arch: `sudo pacman -S base-devel gtk3 webkit2gtk-4.1`). Keep the
+  `-tags gtk3`: without it Wails v3 builds against GTK 4 and WebKitGTK 6.0
+  instead, and the build fails with `Package 'webkitgtk-6.0' not found`.
+  The tag has no effect on Windows.
 - **Frontend**: plain HTML/CSS/JS in `internal/gui/frontend`, embedded into
   the binary. There's no Node or npm step.
 
@@ -484,10 +488,13 @@ implement the interface.
 ### 5. Trying it out
 
 ```sh
-go build ./... && go vet ./...
-go test ./...
+go build -tags gtk3 ./... && go vet -tags gtk3 ./...
+go test -tags gtk3 ./...
 go run .
 ```
+
+The `gtk3` tag is only needed on Linux, because `./...` includes the desktop
+app (see [Building it](#building-it)).
 
 Add a `providers.<name>` entry with `type: <your type>` to your
 `config.yaml` and press `p` in the app to switch to it. Pure helpers
