@@ -5,6 +5,7 @@ import { api, errorMessage, isStale, needsReconnect, on } from "./api.js";
 import {
   $, h, addDays, clock, formatDayMonth, formatMinutes, formatRange, formatWeekday,
 } from "./dom.js";
+import { hydrateIcons, icon } from "./icons.js";
 import { closeModalOfKind, dismissModal, modalOpen, openModal } from "./modal.js";
 import { closeDrawer, drawerOpen, initEntryForm, openEdit, openNew, setProjects } from "./entryform.js";
 import { openAttendance, refreshAttendance, renderAttendance, setAttendanceEnabled } from "./attendance.js";
@@ -22,6 +23,7 @@ const state = {
 // ---------- boot ----------
 
 async function boot() {
+  hydrateIcons();
   initEntryForm({ onChange: (msg) => { flash(msg); loadWeek(); } });
   bindChrome();
   bindEvents();
@@ -119,15 +121,19 @@ function renderWeek(week) {
 function renderDay(date, entries, isToday, weekend) {
   const total = entries.reduce((sum, e) => sum + e.minutes, 0);
   const cls = ["day", isToday && "today", weekend && "weekend"].filter(Boolean).join(" ");
+  const add = () => openNew(state.day, date);
   return h("section", { class: cls, "aria-label": formatWeekday(date) },
-    h("div", { class: "day-label" },
-      h("div", { class: "day-name" }, formatWeekday(date)),
-      h("div", { class: "day-date" }, formatDayMonth(date)),
-      total > 0 && h("div", { class: "day-total num" }, formatMinutes(total))),
+    h("header", { class: "day-head" },
+      h("span", { class: "day-name" }, formatWeekday(date)),
+      h("span", { class: "day-date" }, formatDayMonth(date)),
+      isToday && h("span", { class: "today-badge" }, "Today"),
+      h("span", { class: "day-total" }, formatMinutes(total)),
+      h("button", { class: "icon-btn day-add", type: "button", title: "Add an entry", "aria-label": `Add an entry on ${formatWeekday(date)}`, onclick: add },
+        icon("plus"))),
     h("div", { class: "day-entries" },
       entries.map(renderEntry),
-      h("button", { class: "day-empty", type: "button", onclick: () => openNew(state.day, date) },
-        entries.length ? "+ Add" : "+ Log time")));
+      entries.length === 0 && h("button", { class: "day-empty", type: "button", onclick: add },
+        icon("plus"), "Log time")));
 }
 
 function renderEntry(e) {
@@ -142,7 +148,9 @@ function renderEntry(e) {
   },
   h("span", { class: "entry-time" }, `${clock(e.from)} – ${clock(e.to)}`),
   h("span", { class: "entry-main" },
-    h("div", { class: "entry-project" }, e.projectName, e.locked && h("span", { class: "lock" }, "🔒 locked")),
+    h("div", { class: "entry-project" },
+      h("span", { class: "entry-project-name" }, e.projectName),
+      e.locked && h("span", { class: "lock" }, icon("lock"), "Locked")),
     h("div", { class: "entry-desc" }, e.description || "—")),
   h("span", { class: "entry-dur" }, formatMinutes(e.minutes)));
 }
@@ -150,7 +158,7 @@ function renderEntry(e) {
 function renderMeter(week) {
   const { loggedMinutes: logged, expectedMinutes: expected } = week;
   $("logged").textContent = formatMinutes(logged);
-  $("expected").textContent = `of ${formatMinutes(expected)} expected`;
+  $("expected").textContent = `of ${formatMinutes(expected)}`;
 
   const scale = Math.max(logged, expected, 40 * 60);
   $("meter-fill").style.width = `${Math.min(100, (logged / scale) * 100)}%`;
@@ -193,7 +201,7 @@ function showError(message, retry) {
   const banner = $("error");
   banner.replaceChildren(message ? message : "");
   if (message && retry) {
-    banner.append(" ", h("button", { class: "btn btn-ghost", type: "button", onclick: retry }, "Retry"));
+    banner.append(h("button", { class: "btn btn-secondary btn-sm", type: "button", onclick: retry }, icon("refresh-cw"), "Retry"));
   }
   banner.hidden = !message;
 }
@@ -202,7 +210,7 @@ function flash(message) {
   clearTimeout(state.statusTimer);
   const notice = $("update-notice");
   const previous = notice.dataset.persistent || "";
-  notice.textContent = `✓ ${message}`;
+  notice.replaceChildren(icon("circle-check"), message);
   notice.hidden = false;
   state.statusTimer = setTimeout(() => showUpdateNotice(previous), 4000);
 }

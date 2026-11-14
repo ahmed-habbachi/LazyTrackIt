@@ -6,7 +6,7 @@
   <!-- Everything is bundled; nothing may load from elsewhere. Inline styles
        are allowed only for the per-entry color custom property. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>LazyTrackIt</title>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
@@ -15,56 +15,60 @@
   <div class="shell">
     <aside class="rail" aria-label="Week and status">
       <header class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <div>
+        <span class="brand-mark" aria-hidden="true"><img src="/trackit-logo.png" alt=""></span>
+        <div class="brand-text">
           <h1>LazyTrackIt</h1>
           <p class="brand-sub" id="member">&nbsp;</p>
         </div>
       </header>
 
       <nav class="week-nav" aria-label="Week">
-        <button class="icon-btn" id="prev-week" title="Previous week (←)" aria-label="Previous week">‹</button>
+        <button class="icon-btn" id="prev-week" title="Previous week (←)" aria-label="Previous week"><i data-icon="chevron-left"></i></button>
         <button class="week-label" id="this-week" title="Jump to this week (T)"></button>
-        <button class="icon-btn" id="next-week" title="Next week (→)" aria-label="Next week">›</button>
+        <button class="icon-btn" id="next-week" title="Next week (→)" aria-label="Next week"><i data-icon="chevron-right"></i></button>
       </nav>
 
-      <section class="meter" aria-label="Logged hours">
+      <section class="card meter" aria-label="Logged hours">
+        <p class="eyebrow"><i data-icon="clock"></i>Logged</p>
         <div class="meter-figures">
           <span class="meter-logged" id="logged">0h00</span>
-          <span class="meter-expected" id="expected">of 0h00 expected</span>
+          <span class="meter-expected" id="expected">of 0h00</span>
         </div>
         <div class="meter-track"><div class="meter-fill" id="meter-fill"></div><div class="meter-mark" id="meter-mark"></div></div>
         <p class="meter-delta" id="delta"></p>
       </section>
 
-      <section class="attendance" id="attendance-card" hidden aria-label="Attendance">
-        <p class="eyebrow">Attendance</p>
+      <section class="card attendance" id="attendance-card" hidden aria-label="Attendance">
+        <p class="eyebrow"><i data-icon="map-pin"></i>Attendance</p>
         <p class="attendance-status" id="attendance-status">…</p>
-        <button class="btn btn-ghost" id="attendance-btn">Check in</button>
+        <button class="btn btn-secondary" id="attendance-btn">Check in</button>
       </section>
 
       <div class="rail-foot">
-        <label class="field field-compact" id="provider-field" hidden>
-          <span>Provider</span>
-          <select id="provider"></select>
-        </label>
-        <label class="toggle">
-          <input type="checkbox" id="autostart">
-          <span>Start at login</span>
-        </label>
+        <section class="card settings" aria-labelledby="settings-title">
+          <p class="eyebrow" id="settings-title"><i data-icon="settings"></i>Settings</p>
+          <label class="setting" id="provider-field" hidden>
+            <span class="setting-label">Provider</span>
+            <select id="provider"></select>
+          </label>
+          <label class="setting toggle">
+            <span class="setting-label">Start at login</span>
+            <input type="checkbox" id="autostart" role="switch">
+          </label>
+        </section>
         <p class="version" id="version"></p>
       </div>
     </aside>
 
     <main class="ledger" id="ledger">
       <div class="ledger-head">
-        <div>
-          <p class="eyebrow" id="range"></p>
+        <div class="ledger-title">
           <h2 id="headline">This week</h2>
+          <p class="range" id="range"></p>
         </div>
         <div class="ledger-actions">
-          <button class="btn btn-ghost" id="refresh" title="Refresh (R)">Refresh</button>
-          <button class="btn btn-primary" id="new-entry" title="New entry (N)">New entry</button>
+          <button class="icon-btn icon-btn-outline" id="refresh" title="Refresh (R)" aria-label="Refresh"><i data-icon="refresh-cw"></i></button>
+          <button class="btn btn-primary" id="new-entry" title="New entry (N)"><i data-icon="plus"></i>New entry</button>
         </div>
       </div>
       <p class="notice" id="update-notice" hidden></p>
@@ -79,7 +83,7 @@
     <form id="entry-form" novalidate>
       <header class="drawer-head">
         <h3 id="drawer-title">New entry</h3>
-        <button type="button" class="icon-btn" id="drawer-close" aria-label="Close">×</button>
+        <button type="button" class="icon-btn" id="drawer-close" aria-label="Close"><i data-icon="x"></i></button>
       </header>
       <label class="field">
         <span>Project</span>
@@ -110,9 +114,9 @@
       <p class="duration" id="f-duration"></p>
       <p class="form-error" id="f-error" role="alert"></p>
       <footer class="drawer-foot">
-        <button type="button" class="btn btn-danger-ghost" id="f-delete" hidden>Delete</button>
+        <button type="button" class="btn btn-danger" id="f-delete" hidden><i data-icon="trash"></i>Delete</button>
         <span class="spacer"></span>
-        <button type="button" class="btn btn-ghost" id="f-cancel">Cancel</button>
+        <button type="button" class="btn btn-secondary" id="f-cancel">Cancel</button>
         <button type="submit" class="btn btn-primary" id="f-save">Save</button>
       </footer>
     </form>

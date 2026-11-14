@@ -76,10 +76,10 @@ func Run(opts Options) error {
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      "main",
 		Title:     "LazyTrackIt",
-		Width:     1080,
-		Height:    760,
-		MinWidth:  760,
-		MinHeight: 540,
+		Width:     940,
+		Height:    640,
+		MinWidth:  420,
+		MinHeight: 480,
 		URL:       "/",
 		Hidden:    opts.StartHidden,
 	})

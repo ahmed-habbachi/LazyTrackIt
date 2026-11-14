@@ -2,6 +2,7 @@
 import { api, errorMessage, isStale, needsReconnect, requestReconnect } from "./api.js";
 import { $, h, formatMinutes, formatTime } from "./dom.js";
 import { button, closeModal, openModal } from "./modal.js";
+import { icon } from "./icons.js";
 
 let current = null; // open session, or null when checked out
 
@@ -22,11 +23,12 @@ export function renderAttendance(session) {
   if (session) {
     const since = new Date(session.checkIn);
     const elapsed = (Date.now() - since.getTime()) / 60000;
-    $("attendance-status").textContent = `${session.location} since ${formatTime(since)} · ${formatMinutes(elapsed)}`;
-    $("attendance-btn").textContent = "Check out";
+    $("attendance-status").replaceChildren(session.location,
+      h("span", { class: "attendance-since" }, `since ${formatTime(since)} · ${formatMinutes(elapsed)}`));
+    $("attendance-btn").replaceChildren(icon("log-out"), "Check out");
   } else {
     $("attendance-status").textContent = "Checked out";
-    $("attendance-btn").textContent = "Check in";
+    $("attendance-btn").replaceChildren(icon("log-in"), "Check in");
   }
 }
 
