@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -131,12 +132,15 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 		return c.tokens.AccessToken, nil
 	}
 	if c.tokens.RefreshToken == "" {
-		return "", fmt.Errorf("access token expired and no refresh token is available: log in again")
+		return "", c.dropTokens(errors.New("access token expired and no refresh token is available"))
 	}
 	if err := c.ensureAuthClient(ctx); err != nil {
 		return "", err
 	}
 	fresh, err := c.auth.RefreshTokens(ctx, c.tokens.RefreshToken)
+	if errors.Is(err, auth.ErrInvalidGrant) {
+		return "", c.dropTokens(fmt.Errorf("refreshing access token: %w", err))
+	}
 	if err != nil {
 		return "", fmt.Errorf("refreshing access token: %w", err)
 	}
@@ -145,6 +149,18 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return c.tokens.AccessToken, nil
+}
+
+// dropTokens forgets credentials that can never work again (in memory and
+// on disk), so IsAuthenticated reports false and the next bootstrap runs a
+// fresh login instead of failing the same way forever. It returns cause
+// wrapped in provider.ErrReauthRequired. c.mu must be held.
+func (c *Client) dropTokens(cause error) error {
+	c.tokens = nil
+	if err := auth.DeleteTokens(c.name); err != nil {
+		return fmt.Errorf("%w (%v; also failed to clear the saved login: %v)", provider.ErrReauthRequired, cause, err)
+	}
+	return fmt.Errorf("%w (%v)", provider.ErrReauthRequired, cause)
 }
 
 // currentUserID returns the authenticated user's backend UserID, calling Me

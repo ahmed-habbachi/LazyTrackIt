@@ -61,9 +61,78 @@ jobs:
           name: build-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*
 
+  # The desktop app (cmd/lazytrackit-gui, Wails v3). It's a separate job
+  # because, unlike the TUI, it isn't a pure-Go build everywhere:
+  #   - Windows: no cgo needed (WebView2 is loaded at runtime), so it
+  #     cross-compiles like the TUI. -H windowsgui stops Windows from
+  #     opening a console window next to it.
+  #   - Linux: needs cgo plus the GTK 3 / WebKitGTK 4.1 development
+  #     packages on the runner (Debian/Ubuntu: libgtk-3-dev
+  #     libwebkit2gtk-4.1-dev), so it's only built natively for amd64.
+  build-gui:
+    name: Build GUI ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            cgo: "1"
+            ldflags: ""
+          - goos: windows
+            goarch: amd64
+            cgo: "0"
+            ldflags: "-H windowsgui"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - name: Build and package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          bin="lazytrackit-gui"
+          if [ "${{ matrix.goos }}" = "windows" ]; then bin="lazytrackit-gui.exe"; fi
+          version_pkg="github.com/ahmed-habbachi/lazytrackit/internal/version"
+          go build -trimpath -ldflags "-s -w ${{ matrix.ldflags }} -X ${version_pkg}.Version=${{ github.ref_name }}" -o "$work/$bin" ./cmd/lazytrackit-gui
+
+          mkdir -p dist
+          # The "_desktop" suffix must match update.GUI.Variant. It keeps
+          # GUI archives from ending in _<os>_<arch>.<ext>, which released
+          # TUI versions suffix-match when picking their update.
+          base="lazytrackit-gui_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}_desktop"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            archive="dist/${base}.zip"
+            GOOS= GOARCH= CGO_ENABLED=0 go run ./.github/scripts/zip.go "$work/$bin" "$archive" "$bin"
+          else
+            archive="dist/${base}.tar.gz"
+            tar -czf "$archive" -C "$work" "$bin"
+          fi
+
+          (cd dist && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-gui-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
   release:
     name: Publish release
-    needs: build
+    needs: [build, build-gui]
+    # A failed GUI build (e.g. the self-hosted runner lacks the GTK/WebKit
+    # dev packages) must not block the TUI release; it just ships without
+    # GUI archives.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: self-hosted
     steps:
       - name: Download artifacts
@@ -88,6 +157,11 @@ jobs:
             - **Linux (x86_64)**: `lazytrackit_${{ github.ref_name }}_linux_amd64.tar.gz`
             - **Linux (ARM64)**: `lazytrackit_${{ github.ref_name }}_linux_arm64.tar.gz`
             - **Windows (x86_64)**: `lazytrackit_${{ github.ref_name }}_windows_amd64.zip`
+
+            Desktop app (tray icon + window, can start with the system):
+
+            - **Linux (x86_64)**: `lazytrackit-gui_${{ github.ref_name }}_linux_amd64_desktop.tar.gz`
+            - **Windows (x86_64)**: `lazytrackit-gui_${{ github.ref_name }}_windows_amd64_desktop.zip`
 
             Each archive has a matching `.sha256` file if you want to verify
             the download.

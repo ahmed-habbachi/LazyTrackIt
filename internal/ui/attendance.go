@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ahmed-habbachi/lazytrackit/internal/provider"
+	"github.com/ahmed-habbachi/lazytrackit/internal/service"
 )
 
 // attendanceStatusMsg carries the member's open session (nil if they're not
@@ -19,12 +20,10 @@ type attendanceStatusMsg struct {
 	err     error
 }
 
-// checkInOptionsMsg carries what the check-in form needs to offer: the
-// active work locations and which of them was used last (to preselect it).
+// checkInOptionsMsg carries what the check-in form needs to offer.
 type checkInOptionsMsg struct {
-	locations []provider.WorkLocation
-	lastID    string
-	err       error
+	opts service.CheckInOptions
+	err  error
 }
 
 // attendanceSavedMsg reports the outcome of a check-in or check-out.
@@ -49,58 +48,45 @@ type attendanceForm struct {
 // attendance returns the active provider's check-in/out capability, or nil
 // if it doesn't have one or it isn't enabled in the config.
 func (m Model) attendance() provider.Attendance {
-	a, ok := m.prov.(provider.Attendance)
-	if !ok || !a.AttendanceEnabled() {
-		return nil
-	}
-	return a
+	return m.session.Attendance()
 }
 
-func (m Model) loadAttendanceStatus() {
-	a := m.attendance()
-	if a == nil {
+func (m Model) loadAttendanceStatus(sc service.Scope) {
+	if sc.Attendance() == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	s, err := a.AttendanceStatus(ctx)
+	s, err := sc.AttendanceStatus(context.Background())
+	if stale(err) {
+		return
+	}
 	m.events <- attendanceStatusMsg{session: s, err: err}
 }
 
-func (m Model) loadCheckInOptions() {
-	a := m.attendance()
-	if a == nil {
+func (m Model) loadCheckInOptions(sc service.Scope) {
+	if sc.Attendance() == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	locs, err := a.ListWorkLocations(ctx)
-	if err != nil {
-		m.events <- checkInOptionsMsg{err: err}
+	opts, err := sc.CheckInOptions(context.Background())
+	if stale(err) {
 		return
 	}
-	lastID, _ := a.LastWorkLocation(ctx)
-	m.events <- checkInOptionsMsg{locations: locs, lastID: lastID}
+	m.events <- checkInOptionsMsg{opts: opts, err: err}
 }
 
-func (m Model) saveAttendance(f attendanceForm) {
-	a := m.attendance()
-	if a == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	note := strings.TrimSpace(f.note.Value())
+func (m Model) saveAttendance(sc service.Scope, f attendanceForm) {
+	ctx := context.Background()
+	note := f.note.Value()
 	if f.checkOut {
-		s, err := a.CheckOut(ctx, f.session, note)
-		m.events <- attendanceSavedMsg{session: s, err: err}
+		s, err := sc.CheckOut(ctx, f.session, note)
+		if !stale(err) {
+			m.events <- attendanceSavedMsg{session: s, err: err}
+		}
 		return
 	}
-	s, err := a.CheckIn(ctx, f.locations[f.cursor].ID, note)
-	m.events <- attendanceSavedMsg{session: s, checkedIn: true, err: err}
+	s, err := sc.CheckIn(ctx, f.locations[f.cursor].ID, note)
+	if !stale(err) {
+		m.events <- attendanceSavedMsg{session: s, checkedIn: true, err: err}
+	}
 }
 
 // startAttendance opens the check-out form if the member has an open
@@ -110,7 +96,7 @@ func (m Model) startAttendance() (tea.Model, tea.Cmd) {
 		return m, m.setStatus("Check-in/out isn't enabled for this provider.")
 	}
 	if !m.attendanceLoaded {
-		go m.loadAttendanceStatus()
+		go m.loadAttendanceStatus(m.session.Current())
 		return m, m.setStatus("Attendance status is still loading, try again in a moment.")
 	}
 
@@ -122,7 +108,7 @@ func (m Model) startAttendance() (tea.Model, tea.Cmd) {
 		f.session = *m.attendanceSession
 	} else {
 		f.loading = true
-		go m.loadCheckInOptions()
+		go m.loadCheckInOptions(m.session.Current())
 	}
 	m.attendanceForm = f
 	m.screen = screenAttendance
@@ -146,16 +132,8 @@ func (m Model) handleAttendanceMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		f.loading = false
 		f.err = msg.err
-		f.locations = msg.locations
-		f.cursor = 0
-		for i, l := range msg.locations {
-			if l.ID == msg.lastID {
-				f.cursor = i
-			}
-		}
-		if msg.err == nil && len(msg.locations) == 0 {
-			f.err = fmt.Errorf("no active work locations are configured on the server")
-		}
+		f.locations = msg.opts.Locations
+		f.cursor = msg.opts.SelectedIndex
 		return m, nil
 
 	case attendanceSavedMsg:
@@ -164,7 +142,7 @@ func (m Model) handleAttendanceMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 				f.loading = false
 				f.err = msg.err
 			}
-			go m.loadAttendanceStatus()
+			go m.loadAttendanceStatus(m.session.Current())
 			return m, nil
 		}
 		m.attendanceForm = nil
@@ -214,7 +192,7 @@ func (m Model) handleAttendanceKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		f.loading = true
 		f.err = nil
-		go m.saveAttendance(*f)
+		go m.saveAttendance(m.session.Current(), *f)
 		return m, nil
 	}
 	var cmd tea.Cmd

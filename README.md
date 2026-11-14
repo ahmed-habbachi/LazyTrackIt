@@ -175,6 +175,60 @@ and a week can be "closed" — entries in a closed week come back from
 LazyTrackIt as locked (read-only) and the API rejects writes against them
 with a `week_closed` error.
 
+## Desktop app (tray)
+
+`lazytrackit-gui` is a desktop version of the same app: an icon in the
+system tray plus a window with your week, built with
+[Wails v3](https://v3.wails.io). It reads the same `config.yaml`, uses the
+same cached logins and remembered project/tags, and talks to the same
+providers. You can use it and the terminal UI side by side.
+
+- **Tray**: left-click shows or hides the window. The menu also shows
+  your check-in state, lets you check in or out, and has **Start at login**
+  and **Quit**. Closing the window only hides it; the app keeps running
+  until you choose **Quit**.
+- **Start at login**: tick it in the tray menu or the window's sidebar.
+  This adds a login item (Windows: `HKCU\…\Run`; Linux:
+  `~/.config/autostart/lazytrackit.desktop`) that starts the app with
+  `--hidden`, so it boots straight into the tray without opening a window.
+- **Only one copy runs**: launching it again just brings the existing
+  window to the front.
+- **Keyboard**: `n` new entry, `←`/`→` change week, `t` this week, `r`
+  refresh, `c` check in/out, `Esc` close. In the entry form, Ctrl+Enter
+  saves.
+- **Updates**: these work like the TUI's auto-update, but each app only ever
+  installs its own build. GUI archives are named
+  `lazytrackit-gui_<version>_<os>_<arch>_desktop.<ext>`.
+
+Install it the same way as the TUI: put `lazytrackit-gui` /
+`lazytrackit-gui.exe` next to it, in `~/.local/bin` or
+`%LOCALAPPDATA%\Programs\lazytrackit\`.
+
+**Linux requirements**: the app renders with WebKitGTK, so you need
+`libgtk-3-0` and `libwebkit2gtk-4.1-0` (preinstalled on most desktop
+distros). Unlike the TUI, the Linux GUI is linked dynamically. It needs a
+glibc at least as new as the release build machine's, so on an older distro,
+build it yourself (see below). On GNOME, the tray icon only shows with the
+[AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/).
+Without it, use the window and your app launcher instead.
+
+**Windows requirements**: the WebView2 runtime, which is built into
+Windows 11 and current Windows 10.
+
+### Building it
+
+```
+go build -o lazytrackit-gui ./cmd/lazytrackit-gui
+```
+
+- **Windows**: no C compiler is needed, so it cross-compiles like the TUI.
+  Add `-ldflags "-H windowsgui"` so no console window opens with it:
+  `GOOS=windows go build -ldflags "-H windowsgui" -o lazytrackit-gui.exe ./cmd/lazytrackit-gui`.
+- **Linux**: this needs cgo and the dev packages (Debian/Ubuntu:
+  `sudo apt install build-essential libgtk-3-dev libwebkit2gtk-4.1-dev`).
+- **Frontend**: plain HTML/CSS/JS in `internal/gui/frontend`, embedded into
+  the binary. There's no Node or npm step.
+
 ## Building a Windows executable
 
 Tagged releases are built automatically (see

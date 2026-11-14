@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,8 +14,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/ahmed-habbachi/lazytrackit/internal/config"
 	"github.com/ahmed-habbachi/lazytrackit/internal/provider"
+	"github.com/ahmed-habbachi/lazytrackit/internal/service"
 	"github.com/ahmed-habbachi/lazytrackit/internal/update"
 	"github.com/ahmed-habbachi/lazytrackit/internal/version"
 )
@@ -32,21 +33,18 @@ const (
 	screenError
 )
 
-const requestTimeout = 20 * time.Second
-
 // statusDisplayTime is how long an informational status message (e.g.
 // "✓ Entry created.") stays on screen before it's cleared automatically.
 const statusDisplayTime = 5 * time.Second
 
 // Model is the root Bubble Tea model for LazyTrackIt.
 type Model struct {
-	providers map[string]provider.Provider
-	// providerNames is sorted, for stable display order.
-	providerNames      []string
-	activeProviderName string
+	// session owns the providers, which one is active, and what's been
+	// loaded for it (member, projects, last-used entry defaults). It's
+	// shared by pointer, so every copy of Model sees the same state.
+	session *service.Session
 	// providerCursor is the selection while screenProviderPicker is shown.
 	providerCursor  int
-	prov            provider.Provider
 	events          chan tea.Msg
 	checkForUpdates bool
 
@@ -58,9 +56,6 @@ type Model struct {
 
 	loginPrompt *provider.LoginPrompt
 
-	member    provider.Member
-	hasMember bool
-	projects  []provider.Project
 	entries   []provider.TimeEntry
 	weekStart time.Time
 
@@ -74,10 +69,6 @@ type Model struct {
 	attendanceLoaded  bool
 	attendanceErr     error
 	attendanceForm    *attendanceForm
-
-	// lastDefaults remembers the project/tags most recently used to create
-	// an entry, so a new entry defaults to them instead of starting blank.
-	lastDefaults config.LastEntryDefaults
 
 	err    error
 	status string
@@ -94,11 +85,9 @@ type Model struct {
 	updateNotice string
 }
 
-// New builds the initial Model. providers holds every configured provider
-// keyed by name, names is their stable display order, active is which of
-// them to start with, and checkForUpdates controls whether LazyTrackIt
-// checks GitHub for a newer release on startup.
-func New(providers map[string]provider.Provider, names []string, active string, checkForUpdates bool) Model {
+// New builds the initial Model on top of session. checkForUpdates controls
+// whether LazyTrackIt checks GitHub for a newer release on startup.
+func New(session *service.Session, checkForUpdates bool) Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
@@ -120,35 +109,15 @@ func New(providers map[string]provider.Provider, names []string, active string, 
 		Background(colorAccent)
 	t.SetStyles(ts)
 
-	lastDefaults, _ := config.LoadLastEntryDefaults(active)
-
 	return Model{
-		providers:          providers,
-		providerNames:      names,
-		activeProviderName: active,
-		prov:               providers[active],
-		events:             make(chan tea.Msg, 4),
-		checkForUpdates:    checkForUpdates,
-		screen:             screenLoading,
-		spinner:            s,
-		table:              t,
-		weekStart:          startOfWeek(time.Now()),
-		lastDefaults:       lastDefaults,
+		session:         session,
+		events:          make(chan tea.Msg, 4),
+		checkForUpdates: checkForUpdates,
+		screen:          screenLoading,
+		spinner:         s,
+		table:           t,
+		weekStart:       service.StartOfWeek(time.Now()),
 	}
-}
-
-// startOfDay returns midnight in t's own location. Unlike t.Truncate(24h),
-// which truncates the absolute UTC instant, this respects local civil dates
-// in timezones not aligned to UTC midnight.
-func startOfDay(t time.Time) time.Time {
-	y, mo, d := t.Date()
-	return time.Date(y, mo, d, 0, 0, 0, 0, t.Location())
-}
-
-func startOfWeek(t time.Time) time.Time {
-	t = startOfDay(t)
-	offset := (int(t.Weekday()) + 6) % 7
-	return t.AddDate(0, 0, -offset)
 }
 
 func waitForEvent(events chan tea.Msg) tea.Cmd {
@@ -172,7 +141,7 @@ func (m *Model) setStatus(s string) tea.Cmd {
 // Init kicks off authentication (if needed), the initial data load, and (if
 // enabled) a background check for a newer release.
 func (m Model) Init() tea.Cmd {
-	go m.bootstrap()
+	go m.bootstrap(m.session.Current())
 	if m.checkForUpdates {
 		go m.checkForUpdate()
 	}
@@ -196,85 +165,82 @@ func (m Model) checkForUpdate() {
 	}
 }
 
-// bootstrap runs in its own goroutine: logs in if necessary, then loads the
-// authenticated member, their projects, and the current week's entries.
-func (m Model) bootstrap() {
-	ctx := context.Background()
+// The background loaders below each run in their own goroutine against the
+// service.Scope captured (in Update) when they were started, so they always
+// target the provider that was on screen at the time. If the user switched
+// provider since, the call returns service.ErrStale and its result is
+// dropped instead of being sent, since it belongs to a provider no longer
+// shown (the switch has already started the new provider's own loads).
 
-	if !m.prov.IsAuthenticated() {
-		loginCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
-		err := m.prov.Login(loginCtx, func(p provider.LoginPrompt) {
+// stale reports whether err means a result should be dropped (see above).
+func stale(err error) bool { return errors.Is(err, service.ErrStale) }
+
+// bootstrap logs in if necessary (including again, if the saved login has
+// expired), then loads the authenticated member and their projects; the
+// meAndProjectsLoadedMsg handler goes on to load the current week.
+func (m Model) bootstrap(sc service.Scope) {
+	prompted := false
+	_, err := sc.Connect(context.Background(), func(p provider.LoginPrompt) {
+		prompted = true
+		if sc.Valid() {
 			m.events <- loginPromptMsg{prompt: p}
-		})
-		cancel()
+		}
+	})
+	if stale(err) {
+		return
+	}
+	if prompted {
+		// Leave the login screen (for the error screen, on failure).
 		m.events <- loginResultMsg{err: err}
 		if err != nil {
 			return
 		}
 	}
-
-	m.retryLoad()
+	m.events <- meAndProjectsLoadedMsg{err: err}
 }
 
-// retryLoad (re)loads whatever hasn't successfully loaded yet: the member
-// and project list first, then the current week's entries.
-func (m Model) retryLoad() {
-	if !m.hasMember {
-		m.loadMeAndProjects()
+// retryLoad (re)loads whatever hasn't successfully loaded yet: login and
+// the member/project list first (also when a later call found the saved
+// login expired), then the current week's entries.
+func (m Model) retryLoad(sc service.Scope) {
+	if _, ok := sc.Member(); !ok || sc.NeedsLogin() {
+		m.bootstrap(sc)
 		return
 	}
-	m.loadEntries(m.weekStart)
+	m.loadEntries(sc, m.weekStart)
 }
 
-func (m Model) loadMeAndProjects() {
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	member, err := m.prov.Me(ctx)
-	if err != nil {
-		m.events <- meAndProjectsLoadedMsg{err: err}
+func (m Model) loadEntries(sc service.Scope, weekStart time.Time) {
+	entries, err := sc.ListEntries(context.Background(), weekStart)
+	if stale(err) {
 		return
 	}
-	projects, err := m.prov.ListProjects(ctx)
-	m.events <- meAndProjectsLoadedMsg{member: member, projects: projects, err: err}
-}
-
-func (m Model) loadEntries(weekStart time.Time) {
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	entries, err := m.prov.ListTimeEntries(ctx, m.member.ID, weekStart, weekStart.AddDate(0, 0, 6))
 	m.events <- entriesLoadedMsg{entries: entries, err: err}
 }
 
-func (m Model) saveEntry(e provider.TimeEntry, isEdit bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	var err error
-	if isEdit {
-		_, err = m.prov.UpdateTimeEntry(ctx, e)
-	} else {
-		_, err = m.prov.CreateTimeEntry(ctx, e)
+func (m Model) saveEntry(sc service.Scope, e provider.TimeEntry) {
+	_, err := sc.SaveEntry(context.Background(), e)
+	if stale(err) {
+		return
 	}
-	m.events <- entrySavedMsg{entry: e, err: err, wasEdit: isEdit}
+	m.events <- entrySavedMsg{err: err, wasEdit: e.ID != ""}
 }
 
 // loadTags fetches the tags defined on projectID so the form can offer them
 // as suggestions instead of making the user guess tag IDs.
-func (m Model) loadTags(projectID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	tags, err := m.prov.ListTags(ctx, projectID)
+func (m Model) loadTags(sc service.Scope, projectID string) {
+	tags, err := sc.ListTags(context.Background(), projectID)
+	if stale(err) {
+		return
+	}
 	m.events <- tagsLoadedMsg{projectID: projectID, tags: tags, err: err}
 }
 
-func (m Model) deleteEntry(e provider.TimeEntry) {
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	err := m.prov.DeleteTimeEntry(ctx, e)
+func (m Model) deleteEntry(sc service.Scope, e provider.TimeEntry) {
+	err := sc.DeleteEntry(context.Background(), e)
+	if stale(err) {
+		return
+	}
 	m.events <- entryDeletedMsg{err: err}
 }
 
@@ -327,11 +293,8 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenError
 			return m, nil
 		}
-		m.member = msg.member
-		m.hasMember = true
-		m.projects = msg.projects
-		go m.loadEntries(m.weekStart)
-		go m.loadAttendanceStatus()
+		go m.loadEntries(m.session.Current(), m.weekStart)
+		go m.loadAttendanceStatus(m.session.Current())
 		return m, nil
 
 	case entriesLoadedMsg:
@@ -352,20 +315,14 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenError
 			return m, nil
 		}
-		var statusCmd tea.Cmd
+		status := "Entry created."
 		if msg.wasEdit {
-			statusCmd = m.setStatus("Entry updated.")
-		} else {
-			statusCmd = m.setStatus("Entry created.")
-			m.lastDefaults = config.LastEntryDefaults{
-				ProjectID: msg.entry.ProjectID,
-				TagIDs:    msg.entry.TagIDs,
-			}
-			_ = config.SaveLastEntryDefaults(m.prov.Name(), m.lastDefaults)
+			status = "Entry updated."
 		}
+		statusCmd := m.setStatus(status)
 		m.form = nil
 		m.screen = screenLoading
-		go m.loadEntries(m.weekStart)
+		go m.loadEntries(m.session.Current(), m.weekStart)
 		return m, statusCmd
 
 	case tagsLoadedMsg:
@@ -383,7 +340,7 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.setStatus("Deleted.")
 		m.deleteTarget = nil
 		m.screen = screenLoading
-		go m.loadEntries(m.weekStart)
+		go m.loadEntries(m.session.Current(), m.weekStart)
 		return m, cmd
 
 	case updateInstalledMsg:
@@ -429,7 +386,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.err = nil
 			m.screen = screenLoading
-			go m.retryLoad()
+			go m.retryLoad(m.session.Current())
 			return m, nil
 		}
 		return m, nil
@@ -446,7 +403,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			target := m.deleteTarget
 			m.screen = screenLoading
 			if target != nil {
-				go m.deleteEntry(*target)
+				go m.deleteEntry(m.session.Current(), *target)
 			}
 			return m, nil
 		case "n", "esc":
@@ -474,13 +431,13 @@ func (m Model) handleProviderPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if m.providerCursor < len(m.providerNames)-1 {
+		if m.providerCursor < len(m.session.ProviderNames())-1 {
 			m.providerCursor++
 		}
 		return m, nil
 	case "enter":
-		name := m.providerNames[m.providerCursor]
-		if name == m.activeProviderName {
+		name := m.session.ProviderNames()[m.providerCursor]
+		if name == m.session.ActiveProviderName() {
 			m.screen = screenList
 			return m, nil
 		}
@@ -497,11 +454,11 @@ func (m Model) handleProviderPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // for next startup, and re-runs bootstrap (login if needed, then load
 // member/projects/entries) against the new provider.
 func (m Model) switchProvider(name string) (tea.Model, tea.Cmd) {
-	m.activeProviderName = name
-	m.prov = m.providers[name]
-	m.hasMember = false
-	m.member = provider.Member{}
-	m.projects = nil
+	if err := m.session.SwitchProvider(name); err != nil {
+		m.err = err
+		m.screen = screenError
+		return m, nil
+	}
 	m.entries = nil
 	m.form = nil
 	m.deleteTarget = nil
@@ -512,11 +469,9 @@ func (m Model) switchProvider(name string) (tea.Model, tea.Cmd) {
 	m.err = nil
 	m.status = ""
 	m.loginPrompt = nil
-	m.lastDefaults, _ = config.LoadLastEntryDefaults(name)
-	_ = config.SaveLastProvider(name)
 
 	m.screen = screenLoading
-	go m.bootstrap()
+	go m.bootstrap(m.session.Current())
 	return m, nil
 }
 
@@ -525,18 +480,19 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return m, tea.Quit
 	case "n":
-		m.form = newEntryForm(nil, m.projects, m.weekStart, m.lastDefaults, m.entries)
+		draft := service.NewEntryDraft(m.weekStart, time.Now(), m.session.LastDefaults(), m.entries)
+		m.form = newEntryForm(draft, m.session.Projects())
 		m.screen = screenForm
-		go m.loadTags(m.form.currentProjectID())
+		go m.loadTags(m.session.Current(), m.form.currentProjectID())
 		return m, nil
 	case "e", "enter":
 		if e := m.selectedEntry(); e != nil {
 			if e.Locked {
 				return m, m.setStatus("This entry is locked and cannot be edited.")
 			}
-			m.form = newEntryForm(e, m.projects, m.weekStart, m.lastDefaults, nil)
+			m.form = newEntryForm(service.EditEntryDraft(*e), m.session.Projects())
 			m.screen = screenForm
-			go m.loadTags(m.form.currentProjectID())
+			go m.loadTags(m.session.Current(), m.form.currentProjectID())
 		}
 		return m, nil
 	case "x", "delete":
@@ -551,31 +507,32 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		m.screen = screenLoading
-		go m.loadEntries(m.weekStart)
-		go m.loadAttendanceStatus()
+		go m.loadEntries(m.session.Current(), m.weekStart)
+		go m.loadAttendanceStatus(m.session.Current())
 		return m, nil
 	case "c":
 		return m.startAttendance()
 	case "[", "left":
 		m.weekStart = m.weekStart.AddDate(0, 0, -7)
 		m.screen = screenLoading
-		go m.loadEntries(m.weekStart)
+		go m.loadEntries(m.session.Current(), m.weekStart)
 		return m, nil
 	case "]", "right":
 		m.weekStart = m.weekStart.AddDate(0, 0, 7)
 		m.screen = screenLoading
-		go m.loadEntries(m.weekStart)
+		go m.loadEntries(m.session.Current(), m.weekStart)
 		return m, nil
 	case "t":
-		m.weekStart = startOfWeek(time.Now())
+		m.weekStart = service.StartOfWeek(time.Now())
 		m.screen = screenLoading
-		go m.loadEntries(m.weekStart)
+		go m.loadEntries(m.session.Current(), m.weekStart)
 		return m, nil
 	case "p":
-		if len(m.providerNames) < 2 {
+		names := m.session.ProviderNames()
+		if len(names) < 2 {
 			return m, m.setStatus("Only one provider configured.")
 		}
-		m.providerCursor = indexOf(m.providerNames, m.activeProviderName)
+		m.providerCursor = indexOf(names, m.session.ActiveProviderName())
 		m.screen = screenProviderPicker
 		return m, nil
 	}
@@ -627,7 +584,8 @@ func (m Model) View() string {
 func (m Model) viewProviderPicker() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Switch provider") + "\n\n")
-	for i, name := range m.providerNames {
+	active := m.session.ActiveProviderName()
+	for i, name := range m.session.ProviderNames() {
 		marker := "  "
 		style := subtleStyle
 		if i == m.providerCursor {
@@ -635,7 +593,7 @@ func (m Model) viewProviderPicker() string {
 			style = focusedFieldStyle
 		}
 		label := name
-		if name == m.activeProviderName {
+		if name == active {
 			label += " (active)"
 		}
 		b.WriteString(marker + style.Render(label) + "\n")

@@ -130,6 +130,10 @@ var (
 	ErrSlowDown             = errors.New("slow_down")
 	ErrExpiredToken         = errors.New("expired_token")
 	ErrAccessDenied         = errors.New("access_denied")
+	// ErrInvalidGrant means the server rejected the grant outright — for a
+	// refresh, that the session behind the refresh token is gone (expired,
+	// revoked, or the server was reset), so only a fresh login can help.
+	ErrInvalidGrant = errors.New("invalid_grant")
 )
 
 func (c *Client) doTokenRequest(ctx context.Context, form url.Values) (*Tokens, error) {
@@ -166,6 +170,8 @@ func (c *Client) doTokenRequest(ctx context.Context, form url.Values) (*Tokens, 
 			return nil, ErrExpiredToken
 		case "access_denied":
 			return nil, ErrAccessDenied
+		case "invalid_grant":
+			return nil, fmt.Errorf("token endpoint error: %w (%s)", ErrInvalidGrant, raw.ErrorDescription)
 		default:
 			return nil, fmt.Errorf("token endpoint error: %s (%s)", raw.Error, raw.ErrorDescription)
 		}

@@ -7,15 +7,11 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ahmed-habbachi/lazytrackit/internal/config"
-	"github.com/ahmed-habbachi/lazytrackit/internal/provider"
-	"github.com/ahmed-habbachi/lazytrackit/internal/provider/toggl"
-	"github.com/ahmed-habbachi/lazytrackit/internal/provider/trackit"
-	"github.com/ahmed-habbachi/lazytrackit/internal/provider/weekbooking"
+	"github.com/ahmed-habbachi/lazytrackit/internal/service"
 	"github.com/ahmed-habbachi/lazytrackit/internal/ui"
 	"github.com/ahmed-habbachi/lazytrackit/internal/version"
 )
@@ -55,7 +51,7 @@ func run() error {
 		return err
 	}
 
-	providers, names, err := buildProviders(cfg)
+	providers, names, err := service.BuildProviders(cfg)
 	if err != nil {
 		return err
 	}
@@ -64,50 +60,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	_ = config.SaveLastProvider(active)
+	session, err := service.NewSession(providers, names, active, service.FileStateStore())
+	if err != nil {
+		return err
+	}
+	session.RememberActiveProvider()
 
-	p := tea.NewProgram(ui.New(providers, names, active, cfg.UpdatesEnabled()), tea.WithAltScreen())
+	p := tea.NewProgram(ui.New(session, cfg.UpdatesEnabled()), tea.WithAltScreen())
 	_, err = p.Run()
 	return err
-}
-
-// buildProviders instantiates every provider declared in the config, keyed
-// by its name, plus their names in a stable (sorted) display order.
-func buildProviders(cfg *config.Config) (map[string]provider.Provider, []string, error) {
-	providers := make(map[string]provider.Provider, len(cfg.Providers))
-	names := make([]string, 0, len(cfg.Providers))
-	for name, pcfg := range cfg.Providers {
-		switch pcfg.Type {
-		case "trackit", "":
-			prov, err := trackit.New(name, pcfg)
-			if err != nil {
-				return nil, nil, err
-			}
-			providers[name] = prov
-		case "toggl":
-			prov, err := toggl.New(name, pcfg)
-			if err != nil {
-				return nil, nil, err
-			}
-			providers[name] = prov
-		case "weekbooking":
-			prov, err := weekbooking.New(name, pcfg)
-			if err != nil {
-				return nil, nil, err
-			}
-			providers[name] = prov
-		default:
-			return nil, nil, fmt.Errorf("unknown provider type %q for provider %q", pcfg.Type, name)
-		}
-		if pcfg.Attendance {
-			if _, ok := providers[name].(provider.Attendance); !ok {
-				return nil, nil, fmt.Errorf("provider %q has attendance enabled, but type %q doesn't support check-in/check-out", name, pcfg.Type)
-			}
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return providers, names, nil
 }
 
 func bootstrapConfig() error {

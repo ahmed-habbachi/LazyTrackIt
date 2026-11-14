@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/ahmed-habbachi/lazytrackit/internal/service"
 	"github.com/ahmed-habbachi/lazytrackit/internal/version"
 )
 
@@ -79,47 +80,11 @@ func (m *Model) rebuildTable() {
 	}
 }
 
-func (m Model) totalWeekDuration() time.Duration {
-	var total time.Duration
-	for _, e := range m.entries {
-		total += e.Duration()
-	}
-	return total
-}
-
-// dailyTarget is the number of hours a user is expected to log per weekday.
-const dailyTarget = 8 * time.Hour
-
-// expectedWeekDuration returns the cumulated hours a user is expected to
-// have logged for weekStart's week by now: dailyTarget for every Mon-Fri up
-// to and including today, capped to the full week once today is past it and
-// zero once the week hasn't started yet. This lets the week view show how
-// far ahead or behind the real logged hours are, instead of only the week's
-// final 40h target which isn't meaningful until the week is over.
-func expectedWeekDuration(weekStart time.Time, now time.Time) time.Duration {
-	weekEnd := weekStart.AddDate(0, 0, 6)
-	today := startOfDay(now)
-	cursor := today
-	if cursor.Before(weekStart) {
-		return 0
-	}
-	if cursor.After(weekEnd) {
-		cursor = weekEnd
-	}
-	var days int
-	for d := weekStart; !d.After(cursor); d = d.AddDate(0, 0, 1) {
-		if wd := d.Weekday(); wd != time.Saturday && wd != time.Sunday {
-			days++
-		}
-	}
-	return time.Duration(days) * dailyTarget
-}
-
 // expectedPill renders the cumulated expected-hours-so-far pill, flagging
 // in pillWarnStyle whenever logged hours fall short of it.
 func (m Model) expectedPill() string {
-	expected := expectedWeekDuration(m.weekStart, time.Now())
-	delta := m.totalWeekDuration() - expected
+	expected := service.ExpectedWeekDuration(m.weekStart, time.Now())
+	delta := service.TotalDuration(m.entries) - expected
 
 	label := fmt.Sprintf("⏳ %s expected", formatDuration(expected))
 	style := pillAccentStyle
@@ -150,7 +115,8 @@ func (m Model) viewHeader() string {
 
 	left := appTitleStyle.Render("LazyTrackIt") + " " + subtleStyle.Render(version.Version)
 	right := ""
-	if name := m.member.DisplayName(); name != "" {
+	member, _ := m.session.Member()
+	if name := member.DisplayName(); name != "" {
 		right = userIconStyle.Render("logged in as ") + userBadgeStyle.Render(name)
 	}
 
@@ -171,7 +137,7 @@ func (m Model) viewList() string {
 
 	rangeLabel := fmt.Sprintf("%s – %s", m.weekStart.Format("Jan 2"), m.weekStart.AddDate(0, 0, 6).Format("Jan 2, 2006"))
 	weekPill := pillStyle.Render("📅 " + rangeLabel)
-	totalPill := pillAccentStyle.Render(fmt.Sprintf("⏱ %s logged", formatDuration(m.totalWeekDuration())))
+	totalPill := pillAccentStyle.Render(fmt.Sprintf("⏱ %s logged", formatDuration(service.TotalDuration(m.entries))))
 	pills := weekPill + " " + totalPill + " " + m.expectedPill()
 	if att := m.attendancePill(); att != "" {
 		pills += " " + att
@@ -192,7 +158,7 @@ func (m Model) viewList() string {
 	if m.attendance() != nil {
 		help += "  [c] check in/out"
 	}
-	if len(m.providerNames) > 1 {
+	if len(m.session.ProviderNames()) > 1 {
 		help += "  [p] providers"
 	}
 	help += "  [q] quit"

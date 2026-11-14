@@ -6,11 +6,9 @@ type loginPromptMsg struct{ prompt provider.LoginPrompt }
 
 type loginResultMsg struct{ err error }
 
-type meAndProjectsLoadedMsg struct {
-	member   provider.Member
-	projects []provider.Project
-	err      error
-}
+// meAndProjectsLoadedMsg reports that the session finished loading the
+// member and projects (which it keeps; see service.Session.LoadProfile).
+type meAndProjectsLoadedMsg struct{ err error }
 
 type entriesLoadedMsg struct {
 	entries []provider.TimeEntry
@@ -18,7 +16,6 @@ type entriesLoadedMsg struct {
 }
 
 type entrySavedMsg struct {
-	entry   provider.TimeEntry
 	err     error
 	wasEdit bool
 }

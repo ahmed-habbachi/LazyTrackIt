@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -8,8 +9,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/ahmed-habbachi/lazytrackit/internal/config"
 	"github.com/ahmed-habbachi/lazytrackit/internal/provider"
+	"github.com/ahmed-habbachi/lazytrackit/internal/service"
 )
 
 type formField int
@@ -85,23 +86,9 @@ func (f *entryForm) setAvailableTags(tags []provider.Tag, err error) {
 // TagIDs get shown. Only exact ID matches are touched, so a name the user
 // already typed, or an ID that doesn't resolve, is left alone.
 func (f *entryForm) renderKnownTagIDsAsNames() {
-	if len(f.availableTags) == 0 {
-		return
-	}
-	nameByID := make(map[string]string, len(f.availableTags))
-	for _, t := range f.availableTags {
-		nameByID[t.ID] = t.Name
-	}
-	tokens := parseStrings(f.tags.Value())
-	changed := false
-	for i, tok := range tokens {
-		if name, ok := nameByID[tok]; ok {
-			tokens[i] = name
-			changed = true
-		}
-	}
+	tokens, changed := service.TagIDsToNames(service.ParseList(f.tags.Value()), f.availableTags)
 	if changed {
-		f.tags.SetValue(joinStrings(tokens))
+		f.tags.SetValue(service.JoinList(tokens))
 		f.tags.CursorEnd()
 	}
 }
@@ -119,14 +106,7 @@ func (f *entryForm) tagsHint() string {
 	case len(f.availableTags) == 0:
 		return ""
 	default:
-		var project, system []string
-		for _, t := range f.availableTags {
-			if t.IsSystem {
-				system = append(system, t.Name)
-			} else {
-				project = append(project, t.Name)
-			}
-		}
+		project, system := service.SplitTagNames(f.availableTags)
 		var parts []string
 		if len(project) > 0 {
 			parts = append(parts, "project: "+strings.Join(project, ", "))
@@ -136,35 +116,6 @@ func (f *entryForm) tagsHint() string {
 		}
 		return subtleStyle.Render("available — " + strings.Join(parts, "   "))
 	}
-}
-
-// resolveTagIDs maps each entered token to a tag ID, accepting either a tag
-// name (case-insensitive) or a raw ID. If available is empty (tags haven't
-// loaded, or the provider has none), tokens are passed through unchanged so
-// typing a raw ID still works exactly as before.
-func resolveTagIDs(tokens []string, available []provider.Tag) ([]string, error) {
-	if len(available) == 0 {
-		return tokens, nil
-	}
-	byID := make(map[string]provider.Tag, len(available))
-	byName := make(map[string]provider.Tag, len(available))
-	for _, t := range available {
-		byID[t.ID] = t
-		byName[strings.ToLower(t.Name)] = t
-	}
-	out := make([]string, 0, len(tokens))
-	for _, tok := range tokens {
-		if t, ok := byID[tok]; ok {
-			out = append(out, t.ID)
-			continue
-		}
-		if t, ok := byName[strings.ToLower(tok)]; ok {
-			out = append(out, t.ID)
-			continue
-		}
-		return nil, fmt.Errorf("unknown tag %q", tok)
-	}
-	return out, nil
 }
 
 // dateField is a small YYYY-MM-DD spinner widget mirroring timeField:
@@ -180,17 +131,10 @@ type dateField struct {
 	entered int
 }
 
-// newDateField normalizes t to midnight UTC, regardless of t's own location.
-// The field only ever represents a calendar date (year/month/day), never a
-// real instant, so it must stay in one fixed location: every mutator
-// (setYear/setMonth/setDay) already rebuilds the value in UTC, and
-// construction has to match or the date sent to a provider would carry
-// whatever non-UTC offset t happened to have (e.g. Local) until first
-// edited, which can shift the calendar date by a day once a provider
-// formats it with that offset and the server normalizes it back to UTC.
+// newDateField normalizes t to midnight UTC (see service.CalendarDate);
+// every mutator (setYear/setMonth/setDay) keeps the value in UTC too.
 func newDateField(t time.Time) dateField {
-	y, mo, d := t.Date()
-	return dateField{value: time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)}
+	return dateField{value: service.CalendarDate(t)}
 }
 
 func (d dateField) year() int  { return d.value.Year() }
@@ -534,115 +478,26 @@ func newTextInput(placeholder, value string, charLimit, width int) textinput.Mod
 	return ti
 }
 
-// newEntryForm builds a form. Pass an existing entry to edit it, or nil to
-// create a new one defaulted to the given week's current day/hour and to
-// defaults' project/tags (usually the ones last used, since entries tend to
-// be logged against the same project/tags in a row). existingEntries is only
-// consulted for a new entry (existing == nil): the default start time is set
-// to right after the latest entry already logged on that day, instead of
-// always "now rounded to the hour", so a second new entry doesn't collide
-// with one just created and get rejected as an overlapping time period.
-func newEntryForm(existing *provider.TimeEntry, projects []provider.Project, weekStart time.Time, defaults config.LastEntryDefaults, existingEntries []provider.TimeEntry) *entryForm {
-	f := &entryForm{projects: projects}
-
-	date := defaultEntryDate(weekStart)
-	fromMin := roundToHour(time.Now())
-	if existing == nil {
-		if lastEnd, ok := latestEntryEndMinutes(existingEntries, date); ok {
-			fromMin = lastEnd
-		}
-	}
-	toMin := fromMin + 60
-	description := ""
-	tagIDs := defaults.TagIDs
-	projectID := defaults.ProjectID
-
-	if existing != nil {
-		f.editingID = existing.ID
-		date = startOfDay(existing.Start)
-		fromMin = minutesOfDay(existing.Start)
-		toMin = minutesOfDay(existing.End)
-		description = existing.Description
-		tagIDs = existing.TagIDs
-		projectID = existing.ProjectID
+// newEntryForm builds a form pre-filled from draft: see
+// service.NewEntryDraft for a new entry's defaults, and
+// service.EditEntryDraft for editing an existing one.
+func newEntryForm(draft service.EntryDraft, projects []provider.Project) *entryForm {
+	f := &entryForm{
+		editingID:  draft.ID,
+		projects:   projects,
+		projectIdx: service.ProjectIndex(projects, draft.ProjectID),
 	}
 
-	for i, p := range projects {
-		if p.ID == projectID {
-			f.projectIdx = i
-			break
-		}
-	}
-
-	f.date = newDateField(date)
-	f.from = newTimeField(fromMin)
-	f.to = newTimeField(toMin)
-	f.description = newTextInput("What did you work on?", description, 500, 50)
-	f.tags = newTextInput("comma-separated tag names (or IDs), optional", joinStrings(tagIDs), 100, 50)
+	f.date = newDateField(draft.Date)
+	f.from = newTimeField(draft.FromMinutes)
+	f.to = newTimeField(draft.ToMinutes)
+	f.description = newTextInput("What did you work on?", draft.Description, 500, 50)
+	f.tags = newTextInput("comma-separated tag names (or IDs), optional", service.JoinList(draft.Tags), 100, 50)
 	f.beginLoadingTags()
 
 	f.focus = fieldProject
 	f.focusCurrent()
 	return f
-}
-
-func joinStrings(ids []string) string {
-	return strings.Join(ids, ",")
-}
-
-func parseStrings(s string) []string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
-func roundToHour(t time.Time) int {
-	return t.Hour() * 60
-}
-
-// minutesOfDay returns t's time-of-day as minutes after midnight.
-func minutesOfDay(t time.Time) int {
-	return t.Hour()*60 + t.Minute()
-}
-
-// defaultEntryDate picks "today" when the currently-viewed week contains
-// today, and the Monday of that week otherwise, so a new entry's default
-// date always falls within the week the user is looking at.
-func defaultEntryDate(weekStart time.Time) time.Time {
-	today := startOfDay(time.Now())
-	weekEnd := weekStart.AddDate(0, 0, 6)
-	if !today.Before(weekStart) && !today.After(weekEnd) {
-		return today
-	}
-	return weekStart
-}
-
-// latestEntryEndMinutes returns the latest End time-of-day, in minutes,
-// among entries that fall on date, so a new entry can default to starting
-// right after it instead of landing on an already-booked slot. ok is false
-// if date has no entries yet.
-func latestEntryEndMinutes(entries []provider.TimeEntry, date time.Time) (minutes int, ok bool) {
-	for _, e := range entries {
-		if !startOfDay(e.End).Equal(date) {
-			continue
-		}
-		if end := minutesOfDay(e.End); !ok || end > minutes {
-			minutes = end
-			ok = true
-		}
-	}
-	return minutes, ok
 }
 
 // inputs lists the plain-text fields; fieldProject, the dateField, and the
@@ -732,13 +587,13 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "left", "h":
 			f.projectIdx = (f.projectIdx - 1 + len(f.projects)) % len(f.projects)
 			f.beginLoadingTags()
-			go m.loadTags(f.currentProjectID())
+			go m.loadTags(m.session.Current(), f.currentProjectID())
 			return m, nil
 
 		case "right", "l":
 			f.projectIdx = (f.projectIdx + 1) % len(f.projects)
 			f.beginLoadingTags()
-			go m.loadTags(f.currentProjectID())
+			go m.loadTags(m.session.Current(), f.currentProjectID())
 			return m, nil
 		}
 	}
@@ -763,40 +618,48 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// draft captures the form's current values.
+func (f *entryForm) draft() service.EntryDraft {
+	return service.EntryDraft{
+		ID:          f.editingID,
+		ProjectID:   f.currentProjectID(),
+		Date:        f.date.value,
+		FromMinutes: f.from.minutes,
+		ToMinutes:   f.to.minutes,
+		Description: f.description.Value(),
+		Tags:        service.ParseList(f.tags.Value()),
+	}
+}
+
+// formErrorText turns a service.BuildEntry validation error into the
+// message shown on the form.
+func formErrorText(err error) string {
+	switch {
+	case errors.Is(err, service.ErrNoProjects):
+		return "No projects available; cannot create a time entry."
+	case errors.Is(err, service.ErrEndNotAfter):
+		return "To must be after From."
+	case errors.Is(err, service.ErrMinuteBounds):
+		return "The entry must end by midnight (24:00)."
+	case errors.Is(err, service.ErrUnknownTag):
+		return err.Error() + " — see available tags below."
+	default:
+		return err.Error()
+	}
+}
+
 func (m Model) submitForm() (tea.Model, tea.Cmd) {
 	f := m.form
-	if len(f.projects) == 0 {
-		f.err = "No projects available; cannot create a time entry."
-		return m, nil
-	}
-
-	date := f.date.value
-	fromMin, toMin := f.from.minutes, f.to.minutes
-	if toMin <= fromMin {
-		f.err = "To must be after From."
-		return m, nil
-	}
-	tagIDs, err := resolveTagIDs(parseStrings(f.tags.Value()), f.availableTags)
+	sc := m.session.Current()
+	member, _ := sc.Member()
+	entry, err := service.BuildEntry(f.draft(), f.projects, member.ID, f.availableTags)
 	if err != nil {
-		f.err = err.Error() + " — see available tags below."
+		f.err = formErrorText(err)
 		return m, nil
 	}
 
-	proj := f.projects[f.projectIdx]
-	entry := provider.TimeEntry{
-		ID:          f.editingID,
-		ProjectID:   proj.ID,
-		ProjectName: proj.Name,
-		MemberID:    m.member.ID,
-		Start:       date.Add(time.Duration(fromMin) * time.Minute),
-		End:         date.Add(time.Duration(toMin) * time.Minute),
-		Description: strings.TrimSpace(f.description.Value()),
-		TagIDs:      tagIDs,
-	}
-
-	isEdit := f.editingID != ""
 	m.screen = screenLoading
-	go m.saveEntry(entry, isEdit)
+	go m.saveEntry(sc, entry)
 	return m, nil
 }
 

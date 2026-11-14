@@ -57,6 +57,20 @@ func LoadTokens(providerName string) (*Tokens, error) {
 	return &t, nil
 }
 
+// DeleteTokens removes a provider's cached tokens, e.g. once the server has
+// rejected them, so the next run asks the user to log in again instead of
+// retrying credentials that can never work. A missing file is not an error.
+func DeleteTokens(providerName string) error {
+	path, err := tokenPath(providerName)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // SaveTokens writes tokens for a provider, creating the directory as needed
 // and restricting permissions since this file holds bearer credentials.
 func SaveTokens(providerName string, t *Tokens) error {
