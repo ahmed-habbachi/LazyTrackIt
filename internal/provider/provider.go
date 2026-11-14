@@ -5,8 +5,16 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrReauthRequired is returned (wrapped) by a Provider call when its saved
+// credentials have stopped working for good (e.g. the server ended the login
+// session) and the user has to log in again. A provider returning it must
+// also make IsAuthenticated report false from then on, so front ends can
+// recover by running Login.
+var ErrReauthRequired = errors.New("your login has expired, please log in again")
 
 // Project is a place time can be logged against.
 type Project struct {

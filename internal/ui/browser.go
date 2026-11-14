@@ -21,5 +21,7 @@ func tryOpenBrowser(url string) {
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
-	_ = cmd.Start()
+	if cmd.Start() == nil {
+		go func() { _ = cmd.Wait() }() // reap the child so it never lingers as a zombie
+	}
 }

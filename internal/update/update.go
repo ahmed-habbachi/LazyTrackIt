@@ -8,7 +8,6 @@ package update
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"runtime"
 )
@@ -39,6 +38,12 @@ type CheckResult struct {
 // and the user has to move the binary. Every outcome, including a no-op and
 // why, is appended to update.log in the config directory (see logf).
 func CheckAndApply(ctx context.Context, currentVersion string) CheckResult {
+	return CheckAndApplyProduct(ctx, currentVersion, TUI)
+}
+
+// CheckAndApplyProduct is CheckAndApply for a specific product, so the GUI
+// only ever installs a GUI build over itself (and the TUI a TUI build).
+func CheckAndApplyProduct(ctx context.Context, currentVersion string, product Product) CheckResult {
 	if currentVersion == "dev" || currentVersion == "" {
 		logf("skip: running a dev build (%q), nothing to compare against", currentVersion)
 		return CheckResult{}
@@ -65,13 +70,13 @@ func CheckAndApply(ctx context.Context, currentVersion string) CheckResult {
 	}
 	logf("found newer release %s (running %s)", rel.TagName, currentVersion)
 
-	archiveSuffix := fmt.Sprintf("_%s_%s.%s", runtime.GOOS, runtime.GOARCH, archiveExt())
-	archiveAsset, ok := findAsset(rel.Assets, archiveSuffix)
+	archiveName := product.archiveName(rel.TagName)
+	archiveAsset, ok := findAsset(rel.Assets, archiveName)
 	if !ok {
-		logf("no release asset published for this platform (suffix %s)", archiveSuffix)
+		logf("no release asset published for this platform (%s)", archiveName)
 		return CheckResult{}
 	}
-	checksumAsset, ok := findAsset(rel.Assets, archiveAsset.Name+".sha256")
+	checksumAsset, ok := findAsset(rel.Assets, archiveName+".sha256")
 	if !ok {
 		logf("no checksum asset found for %s", archiveAsset.Name)
 		return CheckResult{}
@@ -94,7 +99,7 @@ func CheckAndApply(ctx context.Context, currentVersion string) CheckResult {
 		return CheckResult{}
 	}
 
-	binaryPath, err := extractBinary(archivePath)
+	binaryPath, err := extractBinary(archivePath, product.binaryName())
 	if err != nil {
 		logf("extracting binary from archive failed: %v", err)
 		return CheckResult{}

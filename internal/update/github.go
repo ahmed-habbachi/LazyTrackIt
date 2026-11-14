@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 const (
@@ -55,10 +54,10 @@ func fetchLatestRelease(ctx context.Context) (*release, error) {
 	return &rel, nil
 }
 
-// findAsset returns the first asset in assets whose name ends with suffix.
-func findAsset(assets []asset, suffix string) (asset, bool) {
+// findAsset returns the asset in assets named exactly name.
+func findAsset(assets []asset, name string) (asset, bool) {
 	for _, a := range assets {
-		if strings.HasSuffix(a.Name, suffix) {
+		if a.Name == name {
 			return a, true
 		}
 	}

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -34,6 +36,33 @@ type Config struct {
 	// A pointer so a missing key defaults to enabled (see UpdatesEnabled)
 	// without an explicit "check_for_updates: true" in every config file.
 	CheckForUpdates *bool `yaml:"check_for_updates"`
+
+	// CheckInReminder is when the desktop app reminds you to check in on
+	// weekdays if you haven't yet ("HH:MM", default 09:30; "off" disables
+	// it). Only used with a provider that has attendance enabled.
+	CheckInReminder string `yaml:"check_in_reminder"`
+}
+
+// DefaultCheckInReminder is the reminder time when check_in_reminder is
+// absent from the config.
+const DefaultCheckInReminder = 9*time.Hour + 30*time.Minute
+
+// CheckInReminderTime returns check_in_reminder as an offset from midnight,
+// or ok=false when reminders are turned off. An absent value means
+// DefaultCheckInReminder.
+func (c *Config) CheckInReminderTime() (at time.Duration, ok bool, err error) {
+	v := strings.TrimSpace(strings.ToLower(c.CheckInReminder))
+	switch v {
+	case "":
+		return DefaultCheckInReminder, true, nil
+	case "off", "false", "no", "none":
+		return 0, false, nil
+	}
+	t, perr := time.Parse("15:04", v)
+	if perr != nil {
+		return 0, false, fmt.Errorf("check_in_reminder %q: use a time like \"09:30\", or \"off\"", c.CheckInReminder)
+	}
+	return time.Duration(t.Hour())*time.Hour + time.Duration(t.Minute())*time.Minute, true, nil
 }
 
 // UpdatesEnabled reports whether LazyTrackIt should check for and install
@@ -84,6 +113,12 @@ active_provider: trackit
 # (it takes effect next time you start the app; your current session is
 # never interrupted). Uncomment to disable:
 # check_for_updates: false
+
+# The desktop app (lazytrackit-gui) reminds you with a notification on
+# weekdays if you haven't checked in by this time, and when you start or
+# wake your computer during the day. Needs "attendance: true" on the
+# provider. The default is 09:30; set it to "off" to disable.
+# check_in_reminder: "09:30"
 
 providers:
   trackit:

@@ -16,15 +16,6 @@ import (
 	"strings"
 )
 
-// binaryName is the file this project's build produces, inside both the
-// .tar.gz (Linux) and .zip (Windows) release archives.
-func binaryName() string {
-	if runtime.GOOS == "windows" {
-		return "lazytrackit.exe"
-	}
-	return "lazytrackit"
-}
-
 // downloadToTemp streams url's body into a new temp file and returns its
 // path. The caller owns the file and should remove it once done.
 func downloadToTemp(ctx context.Context, url, pattern string) (string, error) {
@@ -104,17 +95,18 @@ func verifySHA256(path, wantHex string) error {
 	return nil
 }
 
-// extractBinary pulls binaryName() out of a release archive (.tar.gz on
-// Linux, .zip on Windows) and writes it to a new temp file, returning its
-// path with the executable bit already set (a no-op on Windows).
-func extractBinary(archivePath string) (string, error) {
+// extractBinary pulls the file named want out of a release archive
+// (.tar.gz on Linux, .zip on Windows) and writes it to a new temp file,
+// returning its path with the executable bit already set (a no-op on
+// Windows).
+func extractBinary(archivePath, want string) (string, error) {
 	if runtime.GOOS == "windows" {
-		return extractFromZip(archivePath)
+		return extractFromZip(archivePath, want)
 	}
-	return extractFromTarGz(archivePath)
+	return extractFromTarGz(archivePath, want)
 }
 
-func extractFromTarGz(archivePath string) (string, error) {
+func extractFromTarGz(archivePath, want string) (string, error) {
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return "", err
@@ -127,7 +119,6 @@ func extractFromTarGz(archivePath string) (string, error) {
 	}
 	defer gz.Close()
 
-	want := binaryName()
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -144,14 +135,13 @@ func extractFromTarGz(archivePath string) (string, error) {
 	}
 }
 
-func extractFromZip(archivePath string) (string, error) {
+func extractFromZip(archivePath, want string) (string, error) {
 	zr, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return "", err
 	}
 	defer zr.Close()
 
-	want := binaryName()
 	for _, zf := range zr.File {
 		if filepath.Base(zf.Name) != want {
 			continue

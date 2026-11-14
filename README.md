@@ -175,6 +175,73 @@ and a week can be "closed" — entries in a closed week come back from
 LazyTrackIt as locked (read-only) and the API rejects writes against them
 with a `week_closed` error.
 
+## Desktop app (tray)
+
+`lazytrackit-gui` is a desktop version of the same app: an icon in the
+system tray plus a window with your week, built with
+[Wails v3](https://v3.wails.io). It reads the same `config.yaml`, uses the
+same cached logins and remembered project/tags, and talks to the same
+providers. You can use it and the terminal UI side by side.
+
+- **Tray**: left-click shows or hides the window. The menu also shows
+  your check-in state, lets you check in or out, and has **Start at login**
+  and **Quit**. Closing the window only hides it; the app keeps running
+  until you choose **Quit**.
+- **Start at login**: tick it in the tray menu or the window's sidebar.
+  This adds a login item (Windows: `HKCU\…\Run`; Linux:
+  `~/.config/autostart/lazytrackit.desktop`) that starts the app with
+  `--hidden`, so it boots straight into the tray without opening a window.
+- **Only one copy runs**: launching it again just brings the existing
+  window to the front.
+- **Keyboard**: `n` new entry, `←`/`→` change week, `t` this week, `r`
+  refresh, `c` check in/out, `Esc` close. In the entry form, Ctrl+Enter
+  saves.
+- **Check-in reminder**: with `attendance: true` on the provider, the app
+  shows a desktop notification on weekdays when you haven't checked in:
+  at 09:30 and every 30 minutes after until noon, and 2 minutes after the
+  app starts or your computer wakes from sleep (between 07:00 and 17:00).
+  It always checks your live status first, and once it has seen you
+  checked in that day it stays quiet. Its **Check in** button (or a click
+  on the notification) opens the check-in dialog. Change the time with
+  `check_in_reminder: "08:45"` in `config.yaml`, or turn it off with
+  `check_in_reminder: "off"`.
+- **Updates**: these work like the TUI's auto-update, but each app only ever
+  installs its own build. GUI archives are named
+  `lazytrackit-gui_<version>_<os>_<arch>_desktop.<ext>`.
+
+Install it the same way as the TUI: put `lazytrackit-gui` /
+`lazytrackit-gui.exe` next to it, in `~/.local/bin` or
+`%LOCALAPPDATA%\Programs\lazytrackit\`.
+
+**Linux requirements**: the app renders with WebKitGTK, so you need
+`libgtk-3-0` and `libwebkit2gtk-4.1-0` (preinstalled on most desktop
+distros). Unlike the TUI, the Linux GUI is linked dynamically. It needs a
+glibc at least as new as the release build machine's, so on an older distro,
+build it yourself (see below). On GNOME, the tray icon only shows with the
+[AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/).
+Without it, use the window and your app launcher instead.
+
+**Windows requirements**: the WebView2 runtime, which is built into
+Windows 11 and current Windows 10.
+
+### Building it
+
+```
+go build -tags gtk3 -o lazytrackit-gui ./cmd/lazytrackit-gui
+```
+
+- **Windows**: no C compiler is needed, so it cross-compiles like the TUI.
+  Add `-ldflags "-H windowsgui"` so no console window opens with it:
+  `GOOS=windows go build -ldflags "-H windowsgui" -o lazytrackit-gui.exe ./cmd/lazytrackit-gui`.
+- **Linux**: this needs cgo and the dev packages (Debian/Ubuntu:
+  `sudo apt install build-essential libgtk-3-dev libwebkit2gtk-4.1-dev`;
+  Arch: `sudo pacman -S base-devel gtk3 webkit2gtk-4.1`). Keep the
+  `-tags gtk3`: without it Wails v3 builds against GTK 4 and WebKitGTK 6.0
+  instead, and the build fails with `Package 'webkitgtk-6.0' not found`.
+  The tag has no effect on Windows.
+- **Frontend**: plain HTML/CSS/JS in `internal/gui/frontend`, embedded into
+  the binary. There's no Node or npm step.
+
 ## Building a Windows executable
 
 Tagged releases are built automatically (see
@@ -430,10 +497,13 @@ implement the interface.
 ### 5. Trying it out
 
 ```sh
-go build ./... && go vet ./...
-go test ./...
+go build -tags gtk3 ./... && go vet -tags gtk3 ./...
+go test -tags gtk3 ./...
 go run .
 ```
+
+The `gtk3` tag is only needed on Linux, because `./...` includes the desktop
+app (see [Building it](#building-it)).
 
 Add a `providers.<name>` entry with `type: <your type>` to your
 `config.yaml` and press `p` in the app to switch to it. Pure helpers
