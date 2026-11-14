@@ -10,6 +10,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/ahmed-habbachi/lazytrackit/internal/config"
 	"github.com/ahmed-habbachi/lazytrackit/internal/service"
@@ -50,12 +51,19 @@ func Run(opts Options) error {
 		return fmt.Errorf("load frontend assets: %w", err)
 	}
 
+	services := []application.Service{application.NewService(svc)}
+	var notifier *optionalNotifications
+	if svc.session != nil && svc.remindersOn {
+		notifier = &optionalNotifications{ns: notifications.New()}
+		services = append(services, application.NewService(notifier))
+	}
+
 	var window *application.WebviewWindow
 	app := application.New(application.Options{
 		Name:        "LazyTrackIt",
 		Description: "Time tracking in your tray",
 		Icon:        appIcon,
-		Services:    []application.Service{application.NewService(svc)},
+		Services:    services,
 		Assets:      application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: appID,
@@ -94,15 +102,31 @@ func Run(opts Options) error {
 
 	if svc.session != nil {
 		go checkForUpdate(svc)
-		if opts.StartHidden {
-			// The frontend only boots once the window is shown, so fill in
-			// the tray's check-in state from Go (never starting a login).
-			app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+			if opts.StartHidden {
+				// The frontend only boots once the window is shown, so fill
+				// in the tray's check-in state from Go (never starting a
+				// login).
 				go svc.warmUp()
-			})
-		}
+			}
+			if notifier != nil && notifier.ready.Load() {
+				startReminder(app, window, svc, notifier.ns)
+			}
+		})
 	}
 	return app.Run()
+}
+
+// startReminder starts the check-in reminder loop (see reminder.go) for the
+// life of the app.
+func startReminder(app *application.App, window *application.WebviewWindow, svc *Service, ns *notifications.NotificationService) {
+	dn := newDesktopNotifier(ns, app, window)
+	dn.register()
+	r := newReminder(svc, svc.reminderAt, dn)
+	svc.mu.Lock()
+	svc.reminder = r
+	svc.mu.Unlock()
+	go r.run(app.Context())
 }
 
 // buildService loads the config and providers. Problems that the user has
@@ -136,6 +160,11 @@ func buildService(host Host) *Service {
 	session.RememberActiveProvider()
 	svc := NewService(host, session)
 	svc.updatesDisabled = !cfg.UpdatesEnabled()
+	at, on, err := cfg.CheckInReminderTime()
+	if err != nil {
+		return NewSetupService(host, err.Error())
+	}
+	svc.reminderAt, svc.remindersOn = at, on
 	return svc
 }
 

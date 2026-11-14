@@ -54,6 +54,12 @@ type Service struct {
 	setupMessage string
 	// updatesDisabled mirrors the config's check_for_updates: false.
 	updatesDisabled bool
+	// reminderAt is the config's check_in_reminder (time of day);
+	// remindersOn is false when it's "off".
+	reminderAt  time.Duration
+	remindersOn bool
+	// reminder, when running, is told about every attendance update.
+	reminder *reminder
 
 	mu sync.Mutex
 	// entries caches the most recently requested week, by ID, so Delete can
@@ -458,9 +464,13 @@ func (s *Service) applyAttendance(open *provider.AttendanceSession, enabled bool
 func (s *Service) publishAttendance(open *provider.AttendanceSession, enabled bool) {
 	s.mu.Lock()
 	hook := s.onAttendance
+	rem := s.reminder
 	s.mu.Unlock()
 	if hook != nil {
 		hook(open, enabled)
+	}
+	if rem != nil {
+		rem.observe(open)
 	}
 	s.host.Emit(EventAttendance, toSession(open))
 }

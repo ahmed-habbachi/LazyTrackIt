@@ -196,6 +196,15 @@ providers. You can use it and the terminal UI side by side.
 - **Keyboard**: `n` new entry, `←`/`→` change week, `t` this week, `r`
   refresh, `c` check in/out, `Esc` close. In the entry form, Ctrl+Enter
   saves.
+- **Check-in reminder**: with `attendance: true` on the provider, the app
+  shows a desktop notification on weekdays when you haven't checked in:
+  at 09:30 and every 30 minutes after until noon, and 2 minutes after the
+  app starts or your computer wakes from sleep (between 07:00 and 17:00).
+  It always checks your live status first, and once it has seen you
+  checked in that day it stays quiet. Its **Check in** button (or a click
+  on the notification) opens the check-in dialog. Change the time with
+  `check_in_reminder: "08:45"` in `config.yaml`, or turn it off with
+  `check_in_reminder: "off"`.
 - **Updates**: these work like the TUI's auto-update, but each app only ever
   installs its own build. GUI archives are named
   `lazytrackit-gui_<version>_<os>_<arch>_desktop.<ext>`.
