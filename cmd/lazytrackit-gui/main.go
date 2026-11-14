@@ -3,7 +3,8 @@
 // Wails v3. It shares all its logic with the TUI through internal/service.
 //
 // Pass --hidden to start in the tray without showing the window (this is
-// what the "Start at login" registration launches with).
+// what the "Start at login" registration launches with), and
+// --test-notification to see the check-in reminder a few seconds after start.
 package main
 
 import (
@@ -22,7 +23,10 @@ func main() {
 		return
 	}
 
-	opts := gui.Options{StartHidden: slices.Contains(args, gui.HiddenFlag)}
+	opts := gui.Options{
+		StartHidden:      slices.Contains(args, gui.HiddenFlag),
+		TestNotification: slices.Contains(args, gui.TestNotificationFlag),
+	}
 	if err := gui.Run(opts); err != nil {
 		fmt.Fprintln(os.Stderr, "lazytrackit-gui:", err)
 		os.Exit(1)
