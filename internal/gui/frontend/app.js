@@ -180,7 +180,7 @@ function renderChrome(st) {
   $("member").textContent = st.member || (st.needsLogin ? "Not signed in" : " ");
   $("version").textContent = /^v?\d/.test(st.version) ? `v${st.version.replace(/^v/, "")}` : st.version;
   $("autostart").checked = st.autostart;
-  setAttendanceEnabled(st.attendance);
+  setAttendanceEnabled(st.attendance, !st.needsLogin);
   if (st.attendance) refreshAttendance();
 
   const providers = st.providers || [];

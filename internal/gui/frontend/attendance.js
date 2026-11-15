@@ -5,14 +5,27 @@ import { button, closeModal, openModal } from "./modal.js";
 import { icon } from "./icons.js";
 
 let current = null; // open session, or null when checked out
+let signedIn = false; // no status requests before the login is done
 
 // Keep the elapsed time on the card ticking.
 setInterval(() => { if (current) renderAttendance(current); }, 60 * 1000);
 
-/** @param {boolean} enabled whether the active provider supports attendance */
-export function setAttendanceEnabled(enabled) {
+/**
+ * @param {boolean} enabled whether the active provider supports attendance
+ * @param {boolean} loggedIn whether there's a login to ask the provider with;
+ *   until then the card says so instead of requesting a status that can
+ *   only fail
+ */
+export function setAttendanceEnabled(enabled, loggedIn) {
   $("attendance-card").hidden = !enabled;
   if (!enabled) current = null;
+  signedIn = loggedIn;
+  $("attendance-btn").disabled = !loggedIn;
+  if (enabled && !loggedIn) {
+    current = null;
+    $("attendance-card").classList.remove("in");
+    $("attendance-status").textContent = "Sign in to see your check-in status";
+  }
 }
 
 /** @param {{location: string, checkIn: string, note: string} | null} session */
@@ -33,6 +46,7 @@ export function renderAttendance(session) {
 }
 
 export async function refreshAttendance() {
+  if (!signedIn) return;
   try {
     renderAttendance(await api.attendanceStatus());
   } catch (err) {
@@ -42,6 +56,7 @@ export async function refreshAttendance() {
 }
 
 export function openAttendance() {
+  if (!signedIn) return;
   if (current) openCheckOut();
   else openCheckIn();
 }
