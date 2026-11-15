@@ -190,6 +190,105 @@ func safeLoginURL(raw string) bool {
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
+// ProviderType is a backend type that can be added (see
+// service.ProviderTypes), for the "add provider" form.
+type ProviderType struct {
+	ID              string   `json:"id"`
+	Label           string   `json:"label"`
+	Fields          []string `json:"fields"`
+	BaseURLOptional bool     `json:"baseURLOptional"`
+}
+
+// ProviderTypes lists the types a provider can be added for.
+func (s *Service) ProviderTypes() []ProviderType {
+	out := make([]ProviderType, len(service.ProviderTypes))
+	for i, t := range service.ProviderTypes {
+		out[i] = ProviderType{ID: t.ID, Label: t.Label, Fields: t.Fields, BaseURLOptional: t.BaseURLOptional}
+	}
+	return out
+}
+
+// NewProviderDraft returns the defaults for a new provider of type typ.
+func (s *Service) NewProviderDraft(typ string) service.ProviderDraft {
+	return service.NewProviderDraft(typ)
+}
+
+// AddProvider saves a new provider to config.yaml and returns its name. The
+// frontend then switches to it (SwitchProvider + Start).
+func (s *Service) AddProvider(draft service.ProviderDraft) (string, error) {
+	if s.session == nil {
+		return "", errSetup
+	}
+	return s.session.AddProvider(draft)
+}
+
+// ProviderSummary is one row of the "Manage providers" dialog.
+type ProviderSummary struct {
+	Name   string `json:"name"`
+	Type   string `json:"type"` // the type's label, e.g. "Toggl Track"
+	Active bool   `json:"active"`
+}
+
+// ProviderList lists the configured providers with their types.
+func (s *Service) ProviderList() ([]ProviderSummary, error) {
+	if s.session == nil {
+		return nil, errSetup
+	}
+	active := s.session.ActiveProviderName()
+	var out []ProviderSummary
+	for _, name := range s.session.ProviderNames() {
+		row := ProviderSummary{Name: name, Active: name == active}
+		if d, err := service.ProviderDraftFor(name); err == nil {
+			row.Type = d.Type
+			if t, ok := service.LookupProviderType(d.Type); ok {
+				row.Type = t.Label
+			}
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
+// ProviderDraft returns provider name's settings, to edit them.
+func (s *Service) ProviderDraft(name string) (service.ProviderDraft, error) {
+	if s.session == nil {
+		return service.ProviderDraft{}, errSetup
+	}
+	return service.ProviderDraftFor(name)
+}
+
+// UpdateProvider saves new settings for an existing provider. It reports
+// whether that's the active provider; if so the frontend reloads (Start).
+func (s *Service) UpdateProvider(draft service.ProviderDraft) (bool, error) {
+	if s.session == nil {
+		return false, errSetup
+	}
+	active, err := s.session.UpdateProvider(draft)
+	if err != nil {
+		return false, err
+	}
+	if active {
+		s.resetProviderState()
+	}
+	return active, nil
+}
+
+// RemoveProvider deletes a provider. If it was the active one, it returns
+// the provider now active and the frontend reloads (Start).
+func (s *Service) RemoveProvider(name string) (string, error) {
+	if s.session == nil {
+		return "", errSetup
+	}
+	next, err := s.session.RemoveProvider(name)
+	if err != nil {
+		return "", err
+	}
+	if next != "" {
+		s.resetProviderState()
+	}
+	return next, nil
+}
+
 // SwitchProvider makes name the active provider. The frontend calls Start
 // again afterwards.
 func (s *Service) SwitchProvider(name string) error {
@@ -199,6 +298,13 @@ func (s *Service) SwitchProvider(name string) error {
 	if err := s.session.SwitchProvider(name); err != nil {
 		return err
 	}
+	s.resetProviderState()
+	return nil
+}
+
+// resetProviderState drops what was cached for the previous active
+// provider (or the previous settings of this one).
+func (s *Service) resetProviderState() {
 	s.mu.Lock()
 	s.entries = map[string]provider.TimeEntry{}
 	s.weekSeq++
@@ -206,7 +312,6 @@ func (s *Service) SwitchProvider(name string) error {
 	s.openSession = nil
 	s.mu.Unlock()
 	s.publishAttendance(nil, s.session.Current().Attendance() != nil)
-	return nil
 }
 
 // Week returns the entries of the week containing day ("YYYY-MM-DD"; ""

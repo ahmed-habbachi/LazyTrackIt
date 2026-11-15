@@ -158,9 +158,7 @@ func (m Model) viewList() string {
 	if m.attendance() != nil {
 		help += "  [c] check in/out"
 	}
-	if len(m.session.ProviderNames()) > 1 {
-		help += "  [p] providers"
-	}
+	help += "  [p] providers"
 	help += "  [q] quit"
 	b.WriteString("\n" + helpStyle.Render(help))
 

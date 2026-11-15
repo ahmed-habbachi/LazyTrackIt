@@ -6,9 +6,10 @@ import {
   $, h, addDays, clock, formatDayMonth, formatMinutes, formatRange, formatWeekday,
 } from "./dom.js";
 import { hydrateIcons, icon } from "./icons.js";
-import { closeModalOfKind, dismissModal, modalOpen, openModal } from "./modal.js";
+import { button, closeModal, closeModalOfKind, confirmDialog, dismissModal, modalOpen, openModal } from "./modal.js";
 import { closeDrawer, drawerOpen, initEntryForm, openEdit, openNew, setProjects } from "./entryform.js";
 import { openAttendance, refreshAttendance, renderAttendance, setAttendanceEnabled } from "./attendance.js";
+import { openProviderForm } from "./providerform.js";
 
 const state = {
   day: "",          // any day of the shown week ("" = current week)
@@ -184,7 +185,6 @@ function renderChrome(st) {
   if (st.attendance) refreshAttendance();
 
   const providers = st.providers || [];
-  $("provider-field").hidden = providers.length < 2;
   $("provider").replaceChildren(...providers.map((p) => h("option", { value: p }, p)));
   $("provider").value = st.active;
   $("provider").dataset.active = st.active;
@@ -251,22 +251,100 @@ function bindChrome() {
     }
   });
 
-  $("provider").addEventListener("change", async (e) => {
-    const previous = e.target.dataset.active || "";
-    try {
-      await api.switchProvider(e.target.value);
-      e.target.dataset.active = e.target.value;
-      state.day = "";
-      state.week = null;
-      await start();
-    } catch (err) {
-      e.target.value = previous;
-      showError(errorMessage(err));
-    }
-  });
+  $("provider").addEventListener("change", (e) => switchTo(e.target.value));
+  $("add-provider").addEventListener("click", () => openProviderForm(async ({ name }) => {
+    await switchTo(name);
+    flash(`Added provider "${name}"`);
+  }));
+  $("manage-providers").addEventListener("click", manageProviders);
 
   document.addEventListener("keydown", onKey);
   document.addEventListener("lt:reconnect", () => start());
+}
+
+// reloadActive reloads after the active provider changed underneath the
+// UI (edited, or a removal switched to another one).
+async function reloadActive() {
+  state.day = "";
+  state.week = null;
+  renderChrome(await api.state());
+  await start();
+}
+
+// manageProviders lists every provider with Edit and Remove buttons.
+async function manageProviders() {
+  let list;
+  try {
+    list = await api.providerList();
+  } catch (err) {
+    showError(errorMessage(err));
+    return;
+  }
+  const only = list.length < 2;
+  const rows = list.map((p) => h("div", { class: "pm-row" },
+    h("div", { class: "pm-main" },
+      h("div", { class: "pm-name" }, p.name),
+      h("div", { class: "pm-type" }, p.type || "")),
+    p.active && h("span", { class: "pm-active" }, "Active"),
+    h("button", {
+      class: "icon-btn", type: "button", title: `Edit ${p.name}`, "aria-label": `Edit ${p.name}`,
+      onclick: () => openProviderForm(async ({ name, reload }) => {
+        flash(`Saved provider "${name}"`);
+        if (reload) await reloadActive();
+      }, p.name),
+    }, icon("pencil")),
+    h("button", {
+      class: "icon-btn pm-remove", type: "button", disabled: only,
+      title: only ? "You can't remove your only provider" : `Remove ${p.name}`, "aria-label": `Remove ${p.name}`,
+      onclick: () => removeProvider(p.name, p.active),
+    }, icon("trash"))));
+  openModal({
+    title: "Providers",
+    body: [h("div", { class: "pm-list" }, rows)],
+    actions: [
+      button("Add a provider", "secondary", () => $("add-provider").click()),
+      button("Done", "primary", closeModal),
+    ],
+    kind: "providers",
+  });
+}
+
+async function removeProvider(name, active) {
+  const ok = await confirmDialog(`Remove “${name}”?`,
+    "It's deleted from your config file, and its saved login is removed." +
+      (active ? " It's the provider you're using, so LazyTrackIt switches to another one." : ""),
+    "Remove");
+  if (!ok) return;
+  try {
+    const next = await api.removeProvider(name);
+    if (next) {
+      flash(`Removed "${name}", switched to "${next}"`);
+      await reloadActive();
+    } else {
+      flash(`Removed "${name}"`);
+      renderChrome(await api.state());
+      manageProviders(); // back to the list
+    }
+  } catch (err) {
+    showError(errorMessage(err));
+  }
+}
+
+// switchTo makes name the active provider and loads it (logging in first
+// if it needs that).
+async function switchTo(name) {
+  const select = $("provider");
+  const previous = select.dataset.active || "";
+  try {
+    await api.switchProvider(name);
+    state.day = "";
+    state.week = null;
+    renderChrome(await api.state());
+    await start();
+  } catch (err) {
+    select.value = previous;
+    showError(errorMessage(err));
+  }
 }
 
 function onKey(e) {

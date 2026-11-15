@@ -304,7 +304,7 @@ itself contains no account-specific configuration.
 - `[` / `]` — previous / next week
 - `t` — jump back to the current week
 - `c` — check in / check out (only when attendance is enabled, see below)
-- `p` — switch provider (only shown once more than one is configured)
+- `p` — providers: switch, add (`a`), edit (`e`) or remove (`d`)
 - `q` / `ctrl+c` — quit
 
 In the entry form: `tab`/`shift+tab` (or `↑`/`↓`) move between fields,
@@ -338,6 +338,29 @@ You can configure more than one provider under `providers:` in
 `config.yaml` — e.g. two different TrackIt accounts, or a staging and
 production environment (see the commented-out example in the starter
 config). Press `p` from the main list to switch between them.
+
+You can also add a provider from inside either app instead of editing the
+file: press `p` and pick **+ Add a provider…** in the terminal UI, or use
+**Add provider** in the desktop app's Settings card. Pick the type
+(TrackIt, Toggl Track or week booking), fill in its fields, and save. A new
+TrackIt provider starts with the login settings (issuer, client ID,
+scopes) of one you already have, since a second account or environment
+usually shares them. The provider is appended to `config.yaml` without
+touching anything else in the file (your comments and layout stay as they
+are), and the app switches to it straight away, so a TrackIt provider asks
+you to sign in. API tokens and client secrets are saved in `config.yaml`
+just like when you write them by hand.
+
+Existing providers can be edited or removed the same way: in the terminal
+UI's provider list press `e` or `d` on one; in the desktop app use
+**Manage** in the Settings card. A provider's name can't be changed (its
+saved login and remembered project are keyed by it). Editing rewrites only
+that provider's lines in `config.yaml` (comments inside that entry are
+dropped, since they described the old values); changing a TrackIt
+provider's login issuer or client ID signs you out of it. Removing one also
+deletes its saved login; you can't remove your last provider, and removing
+the one you're using switches to another (and updates `active_provider` if
+it pointed at it).
 
 Whichever provider you last switched to is remembered locally (alongside
 your cached tokens, so it doesn't roam between machines) and becomes the

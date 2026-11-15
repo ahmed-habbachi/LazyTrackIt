@@ -30,6 +30,8 @@ const (
 	screenConfirmDelete
 	screenProviderPicker
 	screenAttendance
+	screenAddProvider
+	screenConfirmRemoveProvider
 	screenError
 )
 
@@ -43,8 +45,13 @@ type Model struct {
 	// loaded for it (member, projects, last-used entry defaults). It's
 	// shared by pointer, so every copy of Model sees the same state.
 	session *service.Session
-	// providerCursor is the selection while screenProviderPicker is shown.
-	providerCursor  int
+	// providerCursor is the selection while screenProviderPicker is shown;
+	// one past the last provider is the "Add a provider" row.
+	providerCursor int
+	// providerForm backs screenAddProvider.
+	providerForm *providerForm
+	// removeTarget is the provider screenConfirmRemoveProvider asks about.
+	removeTarget    string
 	events          chan tea.Msg
 	checkForUpdates bool
 
@@ -388,6 +395,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = screenLoading
 			go m.retryLoad(m.session.Current())
 			return m, nil
+		case "p":
+			// e.g. a newly added provider with a wrong token: switch back.
+			m.providerCursor = indexOf(m.session.ProviderNames(), m.session.ActiveProviderName())
+			m.screen = screenProviderPicker
+			return m, nil
 		}
 		return m, nil
 
@@ -418,6 +430,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case screenAttendance:
 		return m.handleAttendanceKey(msg)
+
+	case screenAddProvider:
+		return m.handleProviderFormKey(msg)
+
+	case screenConfirmRemoveProvider:
+		return m.handleConfirmRemoveProviderKey(msg)
 	}
 
 	return m, nil
@@ -431,12 +449,28 @@ func (m Model) handleProviderPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if m.providerCursor < len(m.session.ProviderNames())-1 {
+		if m.providerCursor < len(m.session.ProviderNames()) { // incl. the "add" row
 			m.providerCursor++
 		}
 		return m, nil
+	case "a", "+":
+		return m.openProviderForm()
+	case "e":
+		if names := m.session.ProviderNames(); m.providerCursor < len(names) {
+			return m.openEditProviderForm(names[m.providerCursor])
+		}
+		return m, nil
+	case "d", "x", "delete":
+		if names := m.session.ProviderNames(); m.providerCursor < len(names) {
+			return m.confirmRemoveProvider(names[m.providerCursor])
+		}
+		return m, nil
 	case "enter":
-		name := m.session.ProviderNames()[m.providerCursor]
+		names := m.session.ProviderNames()
+		if m.providerCursor >= len(names) {
+			return m.openProviderForm()
+		}
+		name := names[m.providerCursor]
 		if name == m.session.ActiveProviderName() {
 			m.screen = screenList
 			return m, nil
@@ -459,6 +493,12 @@ func (m Model) switchProvider(name string) (tea.Model, tea.Cmd) {
 		m.screen = screenError
 		return m, nil
 	}
+	return m.reloadProvider()
+}
+
+// reloadProvider resets what was loaded for the previous provider and
+// re-runs bootstrap against the session's (new) active provider.
+func (m Model) reloadProvider() (tea.Model, tea.Cmd) {
 	m.entries = nil
 	m.form = nil
 	m.deleteTarget = nil
@@ -529,9 +569,6 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "p":
 		names := m.session.ProviderNames()
-		if len(names) < 2 {
-			return m, m.setStatus("Only one provider configured.")
-		}
 		m.providerCursor = indexOf(names, m.session.ActiveProviderName())
 		m.screen = screenProviderPicker
 		return m, nil
@@ -576,6 +613,10 @@ func (m Model) View() string {
 		return m.viewProviderPicker()
 	case screenAttendance:
 		return m.viewAttendance()
+	case screenAddProvider:
+		return m.viewProviderForm()
+	case screenConfirmRemoveProvider:
+		return m.viewConfirmRemoveProvider()
 	default:
 		return m.viewList()
 	}
@@ -583,9 +624,10 @@ func (m Model) View() string {
 
 func (m Model) viewProviderPicker() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Switch provider") + "\n\n")
+	b.WriteString(titleStyle.Render("Providers") + "\n\n")
 	active := m.session.ActiveProviderName()
-	for i, name := range m.session.ProviderNames() {
+	names := m.session.ProviderNames()
+	for i, name := range names {
 		marker := "  "
 		style := subtleStyle
 		if i == m.providerCursor {
@@ -598,12 +640,20 @@ func (m Model) viewProviderPicker() string {
 		}
 		b.WriteString(marker + style.Render(label) + "\n")
 	}
-	b.WriteString("\n" + helpStyle.Render("[enter] select  [esc] cancel"))
+	addMarker, addStyle := "  ", subtleStyle
+	if m.providerCursor == len(names) {
+		addMarker, addStyle = "▸ ", focusedFieldStyle
+	}
+	b.WriteString("\n" + addMarker + addStyle.Render("+ Add a provider…") + "\n")
+	if m.status != "" {
+		b.WriteString("\n" + okStyle.Render(m.status) + "\n")
+	}
+	b.WriteString("\n" + helpStyle.Render("[enter] select  [a] add  [e] edit  [d] remove  [esc] back"))
 	return "\n" + boxStyle.Render(b.String()) + "\n"
 }
 
 func (m Model) viewError() string {
 	body := errorStyle.Render("Error: "+m.err.Error()) + "\n" +
-		helpStyle.Render("[r] retry   [q] quit")
+		helpStyle.Render("[r] retry   [p] providers   [q] quit")
 	return "\n" + boxStyle.Render(body) + "\n"
 }

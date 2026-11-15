@@ -64,11 +64,12 @@ func FileStateStore() StateStore { return fileStateStore{} }
 // generation and cancels the previous one's context, so any Scope from
 // before the switch stops sending requests and has its results discarded.
 type Session struct {
-	providers map[string]provider.Provider
-	names     []string
-	store     StateStore
+	store StateStore
 
-	mu           sync.RWMutex
+	mu sync.RWMutex
+	// providers and names grow when a provider is added (AddProvider).
+	providers    map[string]provider.Provider
+	names        []string
 	gen          uint64 // bumped on every provider switch
 	genCtx       context.Context
 	genCancel    context.CancelFunc
@@ -107,7 +108,11 @@ func NewSession(providers map[string]provider.Provider, names []string, active s
 }
 
 // ProviderNames returns the configured providers' names in display order.
-func (s *Session) ProviderNames() []string { return append([]string(nil), s.names...) }
+func (s *Session) ProviderNames() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]string(nil), s.names...)
+}
 
 // Current returns a snapshot of the active provider and what's been loaded
 // for it, to run calls against.
@@ -173,13 +178,17 @@ func (s *Session) Attendance() provider.Attendance { return s.Current().Attendan
 // a pending login), and remembers the choice for next startup. Callers then
 // take a fresh Current() and re-run Authenticate and LoadProfile on it.
 func (s *Session) SwitchProvider(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.switchLocked(name)
+}
+
+// switchLocked is SwitchProvider with s.mu held.
+func (s *Session) switchLocked(name string) error {
 	prov, ok := s.providers[name]
 	if !ok {
 		return fmt.Errorf("provider %q is not configured", name)
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.genCancel()
 	s.genCtx, s.genCancel = context.WithCancel(context.Background())
 	s.gen++
