@@ -6,10 +6,10 @@ import {
   $, h, addDays, clock, formatDayMonth, formatMinutes, formatRange, formatWeekday,
 } from "./dom.js";
 import { hydrateIcons, icon } from "./icons.js";
-import { button, closeModal, closeModalOfKind, confirmDialog, dismissModal, modalOpen, openModal } from "./modal.js";
+import { closeModalOfKind, dismissModal, modalOpen, openModal } from "./modal.js";
 import { closeDrawer, drawerOpen, initEntryForm, openEdit, openNew, setProjects } from "./entryform.js";
 import { openAttendance, refreshAttendance, renderAttendance, setAttendanceEnabled } from "./attendance.js";
-import { openProviderForm } from "./providerform.js";
+import { initSettings, openSettings, syncAutostart } from "./settings.js";
 
 const state = {
   day: "",          // any day of the shown week ("" = current week)
@@ -19,6 +19,9 @@ const state = {
   weekRequest: 0,   // drops responses for a week no longer shown
   startRequest: 0,  // drops results of a start() superseded by a newer one
   statusTimer: 0,
+  active: "",         // active provider's name
+  appVersion: "",
+  backendVersion: "", // the active provider's server version, once known
 };
 
 // ---------- boot ----------
@@ -50,6 +53,7 @@ async function start() {
     state.colors = new Map(projects.map((p) => [p.id, p.color]));
     setProjects(projects);
     renderChrome(await api.state());
+    loadBackendVersion();
     await loadWeek({ afterStart: true });
   } catch (err) {
     if (isStale(err) || req !== state.startRequest) return;
@@ -179,16 +183,39 @@ function renderSkeleton() {
 
 function renderChrome(st) {
   $("member").textContent = st.member || (st.needsLogin ? "Not signed in" : " ");
-  $("version").textContent = /^v?\d/.test(st.version) ? `v${st.version.replace(/^v/, "")}` : st.version;
-  $("autostart").checked = st.autostart;
+  if (st.active !== state.active) state.backendVersion = "";
+  state.active = st.active || "";
+  state.appVersion = displayVersion(st.version);
   setAttendanceEnabled(st.attendance, !st.needsLogin);
   if (st.attendance) refreshAttendance();
-
-  const providers = st.providers || [];
-  $("provider").replaceChildren(...providers.map((p) => h("option", { value: p }, p)));
-  $("provider").value = st.active;
-  $("provider").dataset.active = st.active;
+  renderVersions();
   showUpdateNotice(st.updateNotice);
+}
+
+// displayVersion prefixes a numeric version with "v"; "dev" stays as is.
+function displayVersion(v) {
+  return /^v?\d/.test(v || "") ? `v${v.replace(/^v/, "")}` : (v || "");
+}
+
+// renderVersions fills the rail's footer: the active provider and its
+// server version, and LazyTrackIt's own.
+function renderVersions() {
+  $("provider-name").textContent = state.active;
+  $("backend-version").textContent = state.backendVersion ? `· server ${state.backendVersion}` : "";
+  $("backend-version").hidden = !state.backendVersion;
+  $("version").textContent = `LazyTrackIt ${state.appVersion}`;
+}
+
+// loadBackendVersion asks the active provider's server for its version;
+// it's informational, so failures just leave it out.
+async function loadBackendVersion() {
+  const active = state.active;
+  try {
+    const v = await api.backendVersion();
+    if (active !== state.active) return;
+    state.backendVersion = v ? displayVersion(v) : "";
+    renderVersions();
+  } catch { /* not shown */ }
 }
 
 function showUpdateNotice(notice) {
@@ -241,22 +268,13 @@ function bindChrome() {
   $("attendance-btn").addEventListener("click", openAttendance);
   $("modal-scrim").addEventListener("click", dismissModal);
 
-  $("autostart").addEventListener("change", async (e) => {
-    const want = e.target.checked;
-    try {
-      await api.setAutostart(want);
-    } catch (err) {
-      e.target.checked = !want;
-      showError(`Couldn't change "Start at login": ${errorMessage(err)}`);
-    }
+  $("open-settings").addEventListener("click", openSettings);
+  initSettings({
+    switchTo, reloadActive, flash,
+    refreshChrome: async () => renderChrome(await api.state()),
+    showError: (message) => showError(message),
+    versions: () => ({ app: state.appVersion, backend: state.backendVersion, provider: state.active }),
   });
-
-  $("provider").addEventListener("change", (e) => switchTo(e.target.value));
-  $("add-provider").addEventListener("click", () => openProviderForm(async ({ name }) => {
-    await switchTo(name);
-    flash(`Added provider "${name}"`);
-  }));
-  $("manage-providers").addEventListener("click", manageProviders);
 
   document.addEventListener("keydown", onKey);
   document.addEventListener("lt:reconnect", () => start());
@@ -271,70 +289,9 @@ async function reloadActive() {
   await start();
 }
 
-// manageProviders lists every provider with Edit and Remove buttons.
-async function manageProviders() {
-  let list;
-  try {
-    list = await api.providerList();
-  } catch (err) {
-    showError(errorMessage(err));
-    return;
-  }
-  const only = list.length < 2;
-  const rows = list.map((p) => h("div", { class: "pm-row" },
-    h("div", { class: "pm-main" },
-      h("div", { class: "pm-name" }, p.name),
-      h("div", { class: "pm-type" }, p.type || "")),
-    p.active && h("span", { class: "pm-active" }, "Active"),
-    h("button", {
-      class: "icon-btn", type: "button", title: `Edit ${p.name}`, "aria-label": `Edit ${p.name}`,
-      onclick: () => openProviderForm(async ({ name, reload }) => {
-        flash(`Saved provider "${name}"`);
-        if (reload) await reloadActive();
-      }, p.name),
-    }, icon("pencil")),
-    h("button", {
-      class: "icon-btn pm-remove", type: "button", disabled: only,
-      title: only ? "You can't remove your only provider" : `Remove ${p.name}`, "aria-label": `Remove ${p.name}`,
-      onclick: () => removeProvider(p.name, p.active),
-    }, icon("trash"))));
-  openModal({
-    title: "Providers",
-    body: [h("div", { class: "pm-list" }, rows)],
-    actions: [
-      button("Add a provider", "secondary", () => $("add-provider").click()),
-      button("Done", "primary", closeModal),
-    ],
-    kind: "providers",
-  });
-}
-
-async function removeProvider(name, active) {
-  const ok = await confirmDialog(`Remove “${name}”?`,
-    "It's deleted from your config file, and its saved login is removed." +
-      (active ? " It's the provider you're using, so LazyTrackIt switches to another one." : ""),
-    "Remove");
-  if (!ok) return;
-  try {
-    const next = await api.removeProvider(name);
-    if (next) {
-      flash(`Removed "${name}", switched to "${next}"`);
-      await reloadActive();
-    } else {
-      flash(`Removed "${name}"`);
-      renderChrome(await api.state());
-      manageProviders(); // back to the list
-    }
-  } catch (err) {
-    showError(errorMessage(err));
-  }
-}
-
 // switchTo makes name the active provider and loads it (logging in first
 // if it needs that).
 async function switchTo(name) {
-  const select = $("provider");
-  const previous = select.dataset.active || "";
   try {
     await api.switchProvider(name);
     state.day = "";
@@ -342,7 +299,6 @@ async function switchTo(name) {
     renderChrome(await api.state());
     await start();
   } catch (err) {
-    select.value = previous;
     showError(errorMessage(err));
   }
 }
@@ -374,7 +330,7 @@ function bindEvents() {
   on("login:prompt", showLoginPrompt);
   on("attendance", renderAttendance);
   on("update", showUpdateNotice);
-  on("autostart", (enabled) => { $("autostart").checked = !!enabled; });
+  on("autostart", syncAutostart);
   on("navigate", (view) => {
     if (view === "attendance" && !$("attendance-card").hidden) openAttendance();
   });

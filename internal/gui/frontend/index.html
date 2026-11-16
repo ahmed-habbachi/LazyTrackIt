@@ -45,22 +45,13 @@
       </section>
 
       <div class="rail-foot">
-        <section class="card settings" aria-labelledby="settings-title">
-          <p class="eyebrow" id="settings-title"><i data-icon="settings"></i>Settings</p>
-          <label class="setting" id="provider-field">
-            <span class="setting-label">Provider</span>
-            <select id="provider"></select>
-          </label>
-          <div class="setting setting-actions">
-            <button type="button" class="link-btn" id="add-provider" title="Add a provider"><i data-icon="plus"></i>Add</button>
-            <button type="button" class="link-btn" id="manage-providers" title="Edit or remove providers"><i data-icon="pencil"></i>Manage</button>
-          </div>
-          <label class="setting toggle">
-            <span class="setting-label">Start at login</span>
-            <input type="checkbox" id="autostart" role="switch">
-          </label>
-        </section>
-        <p class="version" id="version"></p>
+        <button type="button" class="btn btn-secondary settings-btn" id="open-settings" title="Providers, start at login, versions">
+          <i data-icon="settings"></i>Settings
+        </button>
+        <div class="rail-versions">
+          <p><span class="rail-provider" id="provider-name"></span> <span id="backend-version" hidden></span></p>
+          <p id="version"></p>
+        </div>
       </div>
     </aside>
 

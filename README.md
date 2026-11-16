@@ -187,7 +187,12 @@ providers. You can use it and the terminal UI side by side.
   your check-in state, lets you check in or out, and has **Start at login**
   and **Quit**. Closing the window only hides it; the app keeps running
   until you choose **Quit**.
-- **Start at login**: tick it in the tray menu or the window's sidebar.
+- **Settings**: the button at the bottom of the sidebar opens one dialog
+  for everything that isn't your week: your providers (switch to one, add,
+  edit or remove them), **Start at login**, and the versions of
+  LazyTrackIt and of the active provider's server. The sidebar's footer
+  shows the active provider and both versions too.
+- **Start at login**: tick it in the tray menu or in Settings.
   This adds a login item (Windows: `HKCU\…\Run`; Linux:
   `~/.config/autostart/lazytrackit.desktop`) that starts the app with
   `--hidden`, so it boots straight into the tray without opening a window.
@@ -341,7 +346,7 @@ config). Press `p` from the main list to switch between them.
 
 You can also add a provider from inside either app instead of editing the
 file: press `p` and pick **+ Add a provider…** in the terminal UI, or use
-**Add provider** in the desktop app's Settings card. Pick the type
+**Add a provider** in the desktop app's Settings dialog. Pick the type
 (TrackIt, Toggl Track or week booking), fill in its fields, and save. A new
 TrackIt provider starts with the login settings (issuer, client ID,
 scopes) of one you already have, since a second account or environment
@@ -353,7 +358,7 @@ just like when you write them by hand.
 
 Existing providers can be edited or removed the same way: in the terminal
 UI's provider list press `e` or `d` on one; in the desktop app use
-**Manage** in the Settings card. A provider's name can't be changed (its
+the provider list in the Settings dialog. A provider's name can't be changed (its
 saved login and remembered project are keyed by it). Editing rewrites only
 that provider's lines in `config.yaml` (comments inside that entry are
 dropped, since they described the old values); changing a TrackIt

@@ -222,7 +222,21 @@ func (s *Service) AddProvider(draft service.ProviderDraft) (string, error) {
 	return s.session.AddProvider(draft)
 }
 
-// ProviderSummary is one row of the "Manage providers" dialog.
+// BackendVersion returns the active provider's server version, or "" if
+// its type can't report one.
+func (s *Service) BackendVersion(ctx context.Context) (string, error) {
+	sc, err := s.scope()
+	if err != nil {
+		return "", err
+	}
+	v, err := sc.BackendVersion(ctx)
+	if err != nil {
+		return "", publicError(err)
+	}
+	return v, nil
+}
+
+// ProviderSummary is one row of the Settings dialog's provider list.
 type ProviderSummary struct {
 	Name   string `json:"name"`
 	Type   string `json:"type"` // the type's label, e.g. "Toggl Track"

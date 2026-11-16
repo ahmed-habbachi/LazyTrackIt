@@ -52,6 +52,7 @@ export const api = {
   newProviderDraft: (type) => call("NewProviderDraft", type),
   addProvider: (draft) => call("AddProvider", draft),
   providerList: () => call("ProviderList"),
+  backendVersion: () => call("BackendVersion"),
   providerDraft: (name) => call("ProviderDraft", name),
   updateProvider: (draft) => call("UpdateProvider", draft),
   removeProvider: (name) => call("RemoveProvider", name),

@@ -44,3 +44,8 @@ type updateBlockedMsg struct{ dir string }
 // matches m.statusSeq — i.e. no newer status was set in the meantime, which
 // would otherwise get wiped out by this stale timer.
 type clearStatusMsg struct{ seq int }
+
+// backendVersionMsg carries the active provider's server version ("" if
+// it can't report one). provider is whose version it is, so a reply that
+// arrives after a switch is dropped.
+type backendVersionMsg struct{ provider, version string }

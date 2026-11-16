@@ -113,7 +113,10 @@ func (m Model) contentWidth() int {
 func (m Model) viewHeader() string {
 	width := m.contentWidth()
 
-	left := appTitleStyle.Render("LazyTrackIt") + " " + subtleStyle.Render(version.Version)
+	left := appTitleStyle.Render("LazyTrackIt") + " " + subtleStyle.Render(displayVersion(version.Version))
+	if m.backendVersion != "" {
+		left += subtleStyle.Render("  ·  "+m.session.ActiveProviderName()+" ") + subtleStyle.Render(displayVersion(m.backendVersion))
+	}
 	right := ""
 	member, _ := m.session.Member()
 	if name := member.DisplayName(); name != "" {
@@ -127,6 +130,15 @@ func (m Model) viewHeader() string {
 	bar := left + strings.Repeat(" ", gap) + right
 	divider := headerDividerStyle.Render(strings.Repeat("─", width))
 	return bar + "\n" + divider
+}
+
+// displayVersion prefixes a numeric version with "v" ("1.2.3" → "v1.2.3");
+// anything else (e.g. "dev") is shown as is.
+func displayVersion(v string) string {
+	if v != "" && v[0] >= '0' && v[0] <= '9' {
+		return "v" + v
+	}
+	return v
 }
 
 func (m Model) viewList() string {

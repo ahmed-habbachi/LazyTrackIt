@@ -51,7 +51,9 @@ type Model struct {
 	// providerForm backs screenAddProvider.
 	providerForm *providerForm
 	// removeTarget is the provider screenConfirmRemoveProvider asks about.
-	removeTarget    string
+	removeTarget string
+	// backendVersion is the active provider's server version, once known.
+	backendVersion  string
 	events          chan tea.Msg
 	checkForUpdates bool
 
@@ -209,6 +211,16 @@ func (m Model) bootstrap(sc service.Scope) {
 // retryLoad (re)loads whatever hasn't successfully loaded yet: login and
 // the member/project list first (also when a later call found the saved
 // login expired), then the current week's entries.
+// loadBackendVersion fetches the server's version for the header; it's
+// informational, so failures just leave it out.
+func (m Model) loadBackendVersion(sc service.Scope) {
+	v, err := sc.BackendVersion(context.Background())
+	if err != nil {
+		return
+	}
+	m.events <- backendVersionMsg{provider: sc.ProviderName(), version: v}
+}
+
 func (m Model) retryLoad(sc service.Scope) {
 	if _, ok := sc.Member(); !ok || sc.NeedsLogin() {
 		m.bootstrap(sc)
@@ -302,6 +314,13 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		go m.loadEntries(m.session.Current(), m.weekStart)
 		go m.loadAttendanceStatus(m.session.Current())
+		go m.loadBackendVersion(m.session.Current())
+		return m, nil
+
+	case backendVersionMsg:
+		if msg.provider == m.session.ActiveProviderName() {
+			m.backendVersion = msg.version
+		}
 		return m, nil
 
 	case entriesLoadedMsg:
@@ -500,6 +519,7 @@ func (m Model) switchProvider(name string) (tea.Model, tea.Cmd) {
 // re-runs bootstrap against the session's (new) active provider.
 func (m Model) reloadProvider() (tea.Model, tea.Cmd) {
 	m.entries = nil
+	m.backendVersion = ""
 	m.form = nil
 	m.deleteTarget = nil
 	m.attendanceSession = nil

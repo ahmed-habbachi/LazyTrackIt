@@ -173,3 +173,9 @@ type Attendance interface {
 	// CheckOut closes session s. An empty note keeps the one given at check-in.
 	CheckOut(ctx context.Context, s AttendanceSession, note string) (AttendanceSession, error)
 }
+
+// BackendVersioner is implemented by providers whose server can report its
+// own version, which the apps show next to their own.
+type BackendVersioner interface {
+	BackendVersion(ctx context.Context) (string, error)
+}
