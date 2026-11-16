@@ -38,7 +38,17 @@ const appID = "io.github.ahmed-habbachi.lazytrackit"
 type Options struct {
 	// StartHidden keeps the window hidden until opened from the tray.
 	StartHidden bool
+	// TestNotification shows the check-in reminder shortly after start,
+	// whatever the day, time or attendance state, to try notifications out.
+	TestNotification bool
 }
+
+// TestNotificationFlag sets Options.TestNotification.
+const TestNotificationFlag = "--test-notification"
+
+// testNotificationDelay leaves the app time to settle before the test
+// reminder, so it shows up as a normal notification, not during startup.
+const testNotificationDelay = 3 * time.Second
 
 // Run starts the desktop app and blocks until it quits.
 func Run(opts Options) error {
@@ -128,6 +138,9 @@ func Run(opts Options) error {
 			if notifier != nil {
 				if rn := notifier.start(app, window); rn != nil {
 					startReminder(app, svc, rn)
+					if opts.TestNotification {
+						time.AfterFunc(testNotificationDelay, rn.ShowCheckInReminder)
+					}
 				}
 			}
 		})

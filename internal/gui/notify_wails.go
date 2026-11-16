@@ -97,7 +97,10 @@ func (n *desktopNotifier) ShowCheckInReminder() {
 		CategoryID: checkInCategoryID,
 	}
 	if n.iconPath != "" {
-		opts.Attachments = []notifications.NotificationAttachment{{Path: n.iconPath}}
+		// On Windows an attachment without a type is a full-width inline
+		// image, which blows the toast up; appLogoOverride shows it as the
+		// small logo beside the text instead.
+		opts.Attachments = []notifications.NotificationAttachment{{Path: n.iconPath, Type: "appLogoOverride"}}
 	}
 	_ = n.svc.SendNotificationWithActions(opts)
 }
