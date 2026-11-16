@@ -104,6 +104,7 @@ func Run(opts Options) error {
 
 	newTray(app, window, svc)
 	if exeErr == nil {
+		go ensureLauncher(exe)
 		svc.restart = func() error {
 			if err := relaunch(exe); err != nil {
 				return fmt.Errorf("starting the new version: %w", err)

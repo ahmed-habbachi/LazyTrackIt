@@ -219,9 +219,29 @@ providers. You can use it and the terminal UI side by side.
   the tray menu gets **Restart to update to vX**. Either one starts the new
   version and quits the old one.
 
-Install it the same way as the TUI: put `lazytrackit-gui` /
-`lazytrackit-gui.exe` next to it, in `~/.local/bin` or
-`%LOCALAPPDATA%\Programs\lazytrackit\`.
+### Installing the desktop app
+
+- **Windows**: run `lazytrackit-setup_<version>_windows_amd64.exe` from the
+  release. It installs for your user only, so it needs no admin rights. The
+  app goes into `%LOCALAPPDATA%\Programs\LazyTrackIt\`, which you can write
+  to, so auto-update keeps working. It adds a Start Menu shortcut (and a
+  desktop one if you tick it), shows up in **Installed apps** for
+  uninstalling, and offers to start the app when it's done. Running a newer
+  installer upgrades in place. The installer isn't code-signed, so
+  SmartScreen may warn about an unknown publisher: click **More info** →
+  **Run anyway**. You can also skip the installer and extract the
+  `_desktop.zip` instead, as with the TUI.
+- **Linux**: extract the `_desktop.tar.gz` and put `lazytrackit-gui` in
+  `~/.local/bin`, next to the TUI.
+
+Either way, the first time a release build starts it adds itself to your
+app launcher: `~/.local/share/applications/lazytrackit.desktop` (with its
+icon) on Linux, or a Start Menu shortcut on Windows if the installer hasn't
+already made one. On Linux the entry follows the binary if you move it. If
+you delete the entry, it stays deleted. To have it added again, delete
+`launcher-created` from the state folder (`~/.local/state/lazytrackit` or
+`%LOCALAPPDATA%\lazytrackit`). Builds made with plain `go build` don't add
+an entry.
 
 **Linux requirements**: the app renders with WebKitGTK, so you need
 `libgtk-3-0` and `libwebkit2gtk-4.1-0` (preinstalled on most desktop
@@ -243,6 +263,18 @@ go build -tags gtk3 -o lazytrackit-gui ./cmd/lazytrackit-gui
 - **Windows**: no C compiler is needed, so it cross-compiles like the TUI.
   Add `-ldflags "-H windowsgui"` so no console window opens with it:
   `GOOS=windows go build -ldflags "-H windowsgui" -o lazytrackit-gui.exe ./cmd/lazytrackit-gui`.
+  The exe's icon, manifest (per-monitor DPI) and version details come from
+  `cmd/lazytrackit-gui/rsrc_windows_amd64.syso`, which Go links in on its
+  own. To change them, edit `packaging/windows/` (`lazytrackit.ico`,
+  `app.manifest`, `app.rc.in`) and run `packaging/windows/gen-syso.sh`
+  (needs `llvm-windres` or `windres`). The release workflow reruns it with
+  the tag's version.
+- **Windows installer**: `packaging/windows/lazytrackit.iss` is an
+  [Inno Setup 6](https://jrsoftware.org/isinfo.php) script. Build it on
+  Windows with
+  `iscc /DAppVersion=v1.2.3 /DNumVersion=1.2.3 /DBinDir=<folder with lazytrackit-gui.exe> packaging\windows\lazytrackit.iss`.
+  Releases build it in the `installer` job on a GitHub-hosted Windows
+  runner.
 - **Linux**: this needs cgo and the dev packages (Debian/Ubuntu:
   `sudo apt install build-essential libgtk-3-dev libwebkit2gtk-4.1-dev`;
   Arch: `sudo pacman -S base-devel gtk3 webkit2gtk-4.1`). Keep the
