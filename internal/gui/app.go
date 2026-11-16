@@ -10,7 +10,6 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/ahmed-habbachi/lazytrackit/internal/config"
 	"github.com/ahmed-habbachi/lazytrackit/internal/service"
@@ -52,10 +51,10 @@ func Run(opts Options) error {
 	}
 
 	services := []application.Service{application.NewService(svc)}
-	var notifier *optionalNotifications
+	var notifier platformNotifier
 	if svc.session != nil && svc.remindersOn {
-		notifier = &optionalNotifications{ns: notifications.New()}
-		services = append(services, application.NewService(notifier))
+		notifier = newPlatformNotifier()
+		services = append(services, notifier.services()...)
 	}
 
 	var window *application.WebviewWindow
@@ -109,8 +108,10 @@ func Run(opts Options) error {
 				// login).
 				go svc.warmUp()
 			}
-			if notifier != nil && notifier.ready.Load() {
-				startReminder(app, window, svc, notifier.ns)
+			if notifier != nil {
+				if rn := notifier.start(app, window); rn != nil {
+					startReminder(app, svc, rn)
+				}
 			}
 		})
 	}
@@ -119,10 +120,8 @@ func Run(opts Options) error {
 
 // startReminder starts the check-in reminder loop (see reminder.go) for the
 // life of the app.
-func startReminder(app *application.App, window *application.WebviewWindow, svc *Service, ns *notifications.NotificationService) {
-	dn := newDesktopNotifier(ns, app, window)
-	dn.register()
-	r := newReminder(svc, svc.reminderAt, dn)
+func startReminder(app *application.App, svc *Service, rn reminderNotifier) {
+	r := newReminder(svc, svc.reminderAt, rn)
 	svc.mu.Lock()
 	svc.reminder = r
 	svc.mu.Unlock()
