@@ -275,22 +275,22 @@ func TestParseWeekStart(t *testing.T) {
 }
 
 func TestAttendanceLabels(t *testing.T) {
-	status, action, _ := attendanceLabels(nil, time.Now())
-	if status != "Checked out" || action != "Check in…" {
-		t.Errorf("checked out labels = %q %q", status, action)
+	action, tip := attendanceLabels(nil, time.Now())
+	if action != "Check in…" || tip != "Checked out" {
+		t.Errorf("checked out labels = %q %q", action, tip)
 	}
 	in := time.Date(2026, 11, 14, 8, 30, 0, 0, time.Local)
-	status, action, tip := attendanceLabels(&provider.AttendanceSession{WorkLocationName: "Office", CheckIn: in}, in.Add(95*time.Minute))
-	if status != "At Office since 08:30" || action != "Check out…" || !strings.Contains(tip, "1h35m") {
-		t.Errorf("checked in labels = %q %q %q", status, action, tip)
+	action, tip = attendanceLabels(&provider.AttendanceSession{WorkLocationName: "Office", CheckIn: in}, in.Add(95*time.Minute))
+	if action != "Check out… (at Office since 08:30)" || !strings.Contains(tip, "1h35m") {
+		t.Errorf("checked in labels = %q %q", action, tip)
 	}
 }
 
 func TestAttendanceLabelsUseLocalTime(t *testing.T) {
 	in := time.Date(2026, 11, 14, 15, 58, 0, 0, time.UTC)
-	status, _, _ := attendanceLabels(&provider.AttendanceSession{WorkLocationName: "Office", CheckIn: in}, in)
-	if want := "At Office since " + in.Local().Format("15:04"); status != want {
-		t.Errorf("status = %q, want %q", status, want)
+	action, _ := attendanceLabels(&provider.AttendanceSession{WorkLocationName: "Office", CheckIn: in}, in)
+	if want := "Check out… (at Office since " + in.Local().Format("15:04") + ")"; action != want {
+		t.Errorf("action = %q, want %q", action, want)
 	}
 }
 
@@ -442,15 +442,13 @@ func TestAttendanceHookAndSwitchHideIt(t *testing.T) {
 	}
 }
 
-func TestSetAutostartNotifiesTrayAndWindow(t *testing.T) {
+func TestSetAutostart(t *testing.T) {
 	svc, host := newTestService(t, &fakeProv{name: "a", authenticated: true})
-	var got []bool
-	svc.onAutostart = func(on bool) { got = append(got, on) }
 	if err := svc.SetAutostart(true); err != nil {
 		t.Fatal(err)
 	}
-	if !host.autostart || len(got) != 1 || !got[0] || len(host.events[EventAutostart]) != 1 {
-		t.Errorf("autostart=%v hook=%v events=%v", host.autostart, got, host.events[EventAutostart])
+	if !host.autostart || !svc.State().Autostart {
+		t.Errorf("autostart = %v, State().Autostart = %v", host.autostart, svc.State().Autostart)
 	}
 }
 

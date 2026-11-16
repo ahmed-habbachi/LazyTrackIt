@@ -21,7 +21,6 @@ import (
 const (
 	EventLoginPrompt = "login:prompt" // payload: provider.LoginPrompt
 	EventAttendance  = "attendance"   // payload: *AttendanceSession (nil = checked out)
-	EventAutostart   = "autostart"    // payload: bool
 	EventUpdate      = "update"       // payload: UpdateStatus
 	EventNavigate    = "navigate"     // payload: view name, e.g. "attendance"
 )
@@ -87,7 +86,6 @@ type Service struct {
 	onAttendance func(open *provider.AttendanceSession, enabled bool)
 	// onUpdateReady offers "Restart to update" in the tray (nil: no tray).
 	onUpdateReady func(version string)
-	onAutostart   func(enabled bool)
 }
 
 // NewService builds a Service over session.
@@ -515,20 +513,9 @@ func (s *Service) CheckOut(ctx context.Context, note string) error {
 	return nil
 }
 
-// SetAutostart turns launching at login on or off, and tells the tray and
-// window so both checkboxes agree whichever one was used.
+// SetAutostart turns launching at login on or off (Settings' switch).
 func (s *Service) SetAutostart(enabled bool) error {
-	if err := s.host.SetAutostart(enabled); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	hook := s.onAutostart
-	s.mu.Unlock()
-	if hook != nil {
-		hook(enabled)
-	}
-	s.host.Emit(EventAutostart, enabled)
-	return nil
+	return s.host.SetAutostart(enabled)
 }
 
 // refreshAttendance loads the check-in state in the background (e.g. so the

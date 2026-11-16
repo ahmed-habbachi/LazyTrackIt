@@ -1,7 +1,7 @@
 // The Settings dialog: everything that isn't the week itself, in one place.
 // Providers (switch, add, edit, remove), "Start at login", and versions.
 import { api, errorMessage } from "./api.js";
-import { $, h } from "./dom.js";
+import { h } from "./dom.js";
 import { icon } from "./icons.js";
 import { button, closeModal, confirmDialog, openModal } from "./modal.js";
 import { openProviderForm } from "./providerform.js";
@@ -24,12 +24,6 @@ let hooks;
 /** @param {SettingsHooks} h */
 export function initSettings(h) {
   hooks = h;
-}
-
-/** Keeps the dialog's switch in step when autostart changes elsewhere (tray). */
-export function syncAutostart(enabled) {
-  const el = $("settings-autostart");
-  if (el) el.checked = !!enabled;
 }
 
 export async function openSettings() {

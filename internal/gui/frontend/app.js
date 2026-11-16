@@ -9,7 +9,7 @@ import { hydrateIcons, icon } from "./icons.js";
 import { closeModalOfKind, dismissModal, modalOpen, openModal } from "./modal.js";
 import { closeDrawer, drawerOpen, initEntryForm, openEdit, openNew, setProjects } from "./entryform.js";
 import { openAttendance, refreshAttendance, renderAttendance, setAttendanceEnabled } from "./attendance.js";
-import { initSettings, openSettings, syncAutostart } from "./settings.js";
+import { initSettings, openSettings } from "./settings.js";
 
 const state = {
   day: "",          // any day of the shown week ("" = current week)
@@ -349,7 +349,6 @@ function bindEvents() {
   on("login:prompt", showLoginPrompt);
   on("attendance", renderAttendance);
   on("update", showUpdateNotice);
-  on("autostart", syncAutostart);
   on("navigate", (view) => {
     if (view === "attendance" && !$("attendance-card").hidden) openAttendance();
   });

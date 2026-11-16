@@ -12,8 +12,8 @@ import (
 
 // newTray puts LazyTrackIt in the system tray. Left-click toggles the
 // window; the menu offers opening it, the check-in state (jumping straight
-// to check in/out), launching at login, restarting into an installed
-// update, and quitting.
+// to check in/out), restarting into an installed update, and quitting.
+// "Start at login" lives in the window's Settings.
 //
 // On GNOME the tray needs the AppIndicator extension; without it the icon
 // isn't shown, but the app still works through its window and launcher.
@@ -29,30 +29,12 @@ func newTray(app *application.App, window *application.WebviewWindow, svc *Servi
 	menu.Add("Open LazyTrackIt").OnClick(func(*application.Context) { showWindow(window) })
 	menu.AddSeparator()
 
-	status := menu.Add("Attendance: loading…").SetEnabled(false).SetHidden(true)
 	attendance := menu.Add("Check in…").SetHidden(true).OnClick(func(*application.Context) {
 		showWindow(window)
 		app.Event.Emit(EventNavigate, "attendance")
 	})
 	menu.AddSeparator()
 
-	startAtLogin := menu.AddCheckbox("Start at login", false)
-	if on, err := app.Autostart.IsEnabled(); err == nil {
-		startAtLogin.SetChecked(on)
-	}
-	startAtLogin.OnClick(func(*application.Context) {
-		// Ask the OS for the real state rather than trusting the checkbox,
-		// which the window's own toggle may have changed meanwhile.
-		on, err := app.Autostart.IsEnabled()
-		if err != nil {
-			on = !startAtLogin.Checked()
-		}
-		if err := svc.SetAutostart(!on); err != nil {
-			startAtLogin.SetChecked(on)
-			app.Dialog.Error().SetTitle("Start at login").SetMessage(err.Error()).Show()
-		}
-	})
-	menu.AddSeparator()
 	restart := menu.Add("Restart to update").SetHidden(true).OnClick(func(*application.Context) {
 		if err := svc.RestartToUpdate(); err != nil {
 			app.Dialog.Error().SetTitle("Restart to update").SetMessage(err.Error()).Show()
@@ -69,29 +51,24 @@ func newTray(app *application.App, window *application.WebviewWindow, svc *Servi
 		showWindow(window)
 	})
 
+	// SetLabel and SetHidden update the tray's live menu by themselves. Never
+	// call menu.Update() on it: that builds a separate window-style menu and
+	// moves the items over to it, after which label changes no longer reach
+	// the tray (on Linux and Windows alike).
 	svc.mu.Lock()
 	svc.onAttendance = func(open *provider.AttendanceSession, enabled bool) {
-		label, action, detail := attendanceLabels(open, time.Now())
+		action, detail := attendanceLabels(open, time.Now())
 		if !enabled {
 			detail = ""
 		}
 		application.InvokeAsync(func() {
-			status.SetLabel(label).SetHidden(!enabled)
 			attendance.SetLabel(action).SetHidden(!enabled)
 			tray.SetTooltip(trayTooltip(detail, runtime.GOOS))
-			menu.Update()
 		})
 	}
 	svc.onUpdateReady = func(version string) {
 		application.InvokeAsync(func() {
 			restart.SetLabel("Restart to update to " + version).SetHidden(false)
-			menu.Update()
-		})
-	}
-	svc.onAutostart = func(enabled bool) {
-		application.InvokeAsync(func() {
-			startAtLogin.SetChecked(enabled)
-			menu.Update()
 		})
 	}
 	svc.mu.Unlock()
@@ -112,17 +89,18 @@ func trayTooltip(detail, goos string) string {
 	return trayLabel + " — " + detail
 }
 
-// attendanceLabels renders the tray's status line, its check in/out action
-// and the tooltip's detail line for the open session (nil when checked out).
-func attendanceLabels(open *provider.AttendanceSession, now time.Time) (status, action, detail string) {
+// attendanceLabels renders the tray's one check in/out entry, which also
+// says where and since when you're checked in, and the tooltip's detail
+// line, for the open session (nil when checked out).
+func attendanceLabels(open *provider.AttendanceSession, now time.Time) (action, detail string) {
 	if open == nil {
-		return "Checked out", "Check in…", "Checked out"
+		return "Check in…", "Checked out"
 	}
 	// The provider may report the check-in in UTC; show it in local time,
 	// as the window does.
 	since := open.CheckIn.Local().Format("15:04")
 	elapsed := now.Sub(open.CheckIn).Round(time.Minute)
-	status = fmt.Sprintf("At %s since %s", open.WorkLocationName, since)
+	action = fmt.Sprintf("Check out… (at %s since %s)", open.WorkLocationName, since)
 	detail = fmt.Sprintf("%s since %s (%dh%02dm)", open.WorkLocationName, since, int(elapsed.Hours()), int(elapsed.Minutes())%60)
-	return status, "Check out…", detail
+	return action, detail
 }

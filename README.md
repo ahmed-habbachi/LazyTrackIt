@@ -183,16 +183,17 @@ system tray plus a window with your week, built with
 same cached logins and remembered project/tags, and talks to the same
 providers. You can use it and the terminal UI side by side.
 
-- **Tray**: left-click shows or hides the window. The menu also shows
-  your check-in state, lets you check in or out, and has **Start at login**
-  and **Quit**. Closing the window only hides it; the app keeps running
-  until you choose **Quit**.
+- **Tray**: left-click shows or hides the window. The menu has a single
+  check in / check out entry (when you're checked in it also says where
+  and since when), **Restart to update** once an update is installed, and
+  **Quit**. Closing the window only hides it; the app keeps running until
+  you choose **Quit**.
 - **Settings**: the button at the bottom of the sidebar opens one dialog
   for everything that isn't your week: your providers (switch to one, add,
   edit or remove them), **Start at login**, and the versions of
   LazyTrackIt and of the active provider's server. The sidebar's footer
   shows the active provider and both versions too.
-- **Start at login**: tick it in the tray menu or in Settings.
+- **Start at login**: turn it on in Settings.
   This adds a login item (Windows: `HKCU\…\Run`; Linux:
   `~/.config/autostart/lazytrackit.desktop`) that starts the app with
   `--hidden`, so it boots straight into the tray without opening a window.
