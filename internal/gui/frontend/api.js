@@ -56,6 +56,7 @@ export const api = {
   providerDraft: (name) => call("ProviderDraft", name),
   updateProvider: (draft) => call("UpdateProvider", draft),
   removeProvider: (name) => call("RemoveProvider", name),
+  restartToUpdate: () => call("RestartToUpdate"),
 };
 
 // on subscribes to a Go-emitted event, handing the callback its payload.

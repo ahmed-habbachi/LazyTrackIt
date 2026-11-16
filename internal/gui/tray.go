@@ -12,7 +12,8 @@ import (
 
 // newTray puts LazyTrackIt in the system tray. Left-click toggles the
 // window; the menu offers opening it, the check-in state (jumping straight
-// to check in/out), launching at login, and quitting.
+// to check in/out), launching at login, restarting into an installed
+// update, and quitting.
 //
 // On GNOME the tray needs the AppIndicator extension; without it the icon
 // isn't shown, but the app still works through its window and launcher.
@@ -52,6 +53,11 @@ func newTray(app *application.App, window *application.WebviewWindow, svc *Servi
 		}
 	})
 	menu.AddSeparator()
+	restart := menu.Add("Restart to update").SetHidden(true).OnClick(func(*application.Context) {
+		if err := svc.RestartToUpdate(); err != nil {
+			app.Dialog.Error().SetTitle("Restart to update").SetMessage(err.Error()).Show()
+		}
+	})
 	menu.Add("Quit").OnClick(func(*application.Context) { app.Quit() })
 
 	tray.SetMenu(menu)
@@ -73,6 +79,12 @@ func newTray(app *application.App, window *application.WebviewWindow, svc *Servi
 			status.SetLabel(label).SetHidden(!enabled)
 			attendance.SetLabel(action).SetHidden(!enabled)
 			tray.SetTooltip(trayTooltip(detail, runtime.GOOS))
+			menu.Update()
+		})
+	}
+	svc.onUpdateReady = func(version string) {
+		application.InvokeAsync(func() {
+			restart.SetLabel("Restart to update to " + version).SetHidden(false)
 			menu.Update()
 		})
 	}

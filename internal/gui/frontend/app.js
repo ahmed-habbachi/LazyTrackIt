@@ -22,6 +22,7 @@ const state = {
   active: "",         // active provider's name
   appVersion: "",
   backendVersion: "", // the active provider's server version, once known
+  update: { notice: "" }, // gui.UpdateStatus
 };
 
 // ---------- boot ----------
@@ -189,7 +190,7 @@ function renderChrome(st) {
   setAttendanceEnabled(st.attendance, !st.needsLogin);
   if (st.attendance) refreshAttendance();
   renderVersions();
-  showUpdateNotice(st.updateNotice);
+  showUpdateNotice(st.update);
 }
 
 // displayVersion prefixes a numeric version with "v"; "dev" stays as is.
@@ -218,10 +219,29 @@ async function loadBackendVersion() {
   } catch { /* not shown */ }
 }
 
-function showUpdateNotice(notice) {
-  $("update-notice").dataset.persistent = notice || "";
-  $("update-notice").textContent = notice || "";
-  $("update-notice").hidden = !notice;
+// showUpdateNotice shows what self-update has to say (gui.UpdateStatus):
+// an installed update gets a "Restart now" button. It stays until replaced;
+// flash() shows its message over it for a moment.
+function showUpdateNotice(update) {
+  state.update = update || { notice: "" };
+  const el = $("update-notice");
+  el.replaceChildren(state.update.notice || "");
+  if (state.update.ready && state.update.canRestart) {
+    el.append(h("button", {
+      class: "btn btn-primary btn-sm", type: "button", onclick: restartToUpdate,
+    }, icon("refresh-cw"), "Restart now"));
+  }
+  el.hidden = !state.update.notice;
+}
+
+async function restartToUpdate(e) {
+  e.currentTarget.disabled = true;
+  try {
+    await api.restartToUpdate(); // the app quits and the new version opens
+  } catch (err) {
+    e.currentTarget.disabled = false;
+    showError(errorMessage(err));
+  }
 }
 
 function showError(message, retry) {
@@ -236,10 +256,9 @@ function showError(message, retry) {
 function flash(message) {
   clearTimeout(state.statusTimer);
   const notice = $("update-notice");
-  const previous = notice.dataset.persistent || "";
   notice.replaceChildren(icon("circle-check"), message);
   notice.hidden = false;
-  state.statusTimer = setTimeout(() => showUpdateNotice(previous), 4000);
+  state.statusTimer = setTimeout(() => showUpdateNotice(state.update), 4000);
 }
 
 // ---------- login prompt ----------

@@ -22,7 +22,7 @@ const (
 	EventLoginPrompt = "login:prompt" // payload: provider.LoginPrompt
 	EventAttendance  = "attendance"   // payload: *AttendanceSession (nil = checked out)
 	EventAutostart   = "autostart"    // payload: bool
-	EventUpdate      = "update"       // payload: notice string
+	EventUpdate      = "update"       // payload: UpdateStatus
 	EventNavigate    = "navigate"     // payload: view name, e.g. "attendance"
 )
 
@@ -77,10 +77,17 @@ type Service struct {
 	attSeq      uint64
 
 	updateNotice string
+	updateReady  string // version installed and waiting for a restart
+
+	// restart starts the installed update and quits; nil in tests and
+	// when the executable's path couldn't be found.
+	restart func() error
 
 	// Hooks for the tray, set once at startup.
 	onAttendance func(open *provider.AttendanceSession, enabled bool)
-	onAutostart  func(enabled bool)
+	// onUpdateReady offers "Restart to update" in the tray (nil: no tray).
+	onUpdateReady func(version string)
+	onAutostart   func(enabled bool)
 }
 
 // NewService builds a Service over session.
@@ -122,7 +129,7 @@ func (s *Service) State() State {
 		st.Autostart = on
 	}
 	s.mu.Lock()
-	st.UpdateNotice = s.updateNotice
+	st.Update = UpdateStatus{Notice: s.updateNotice, Ready: s.updateReady, CanRestart: s.restart != nil}
 	s.mu.Unlock()
 	if s.session == nil {
 		return st
@@ -598,6 +605,36 @@ func (s *Service) publishAttendance(open *provider.AttendanceSession, enabled bo
 func (s *Service) setUpdateNotice(notice string) {
 	s.mu.Lock()
 	s.updateNotice = notice
+	st := UpdateStatus{Notice: notice, Ready: s.updateReady}
 	s.mu.Unlock()
-	s.host.Emit(EventUpdate, notice)
+	s.host.Emit(EventUpdate, st)
+}
+
+// setUpdateReady records that version is installed and runs after a
+// restart, and tells the frontend (which offers "Restart now").
+func (s *Service) setUpdateReady(version string) {
+	s.mu.Lock()
+	s.updateReady = version
+	s.updateNotice = fmt.Sprintf("LazyTrackIt %s is installed. Restart to start using it.", version)
+	st := UpdateStatus{Notice: s.updateNotice, Ready: version, CanRestart: s.restart != nil}
+	hook := s.onUpdateReady
+	s.mu.Unlock()
+	s.host.Emit(EventUpdate, st)
+	if hook != nil && st.CanRestart {
+		hook(version)
+	}
+}
+
+// RestartToUpdate starts the installed update and quits this instance.
+func (s *Service) RestartToUpdate() error {
+	s.mu.Lock()
+	ready, restart := s.updateReady, s.restart
+	s.mu.Unlock()
+	if ready == "" {
+		return errors.New("no update is waiting to be installed")
+	}
+	if restart == nil {
+		return errors.New("LazyTrackIt can't restart itself here; quit and start it again")
+	}
+	return restart()
 }

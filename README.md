@@ -212,7 +212,12 @@ providers. You can use it and the terminal UI side by side.
   `check_in_reminder: "off"`.
 - **Updates**: these work like the TUI's auto-update, but each app only ever
   installs its own build. GUI archives are named
-  `lazytrackit-gui_<version>_<os>_<arch>_desktop.<ext>`.
+  `lazytrackit-gui_<version>_<os>_<arch>_desktop.<ext>`. Since the desktop
+  app tends to stay in the tray for days, it checks again about once a day
+  while it's running, and an hour later if a check couldn't reach GitHub.
+  Once an update is installed, the window shows a **Restart now** button and
+  the tray menu gets **Restart to update to vX**. Either one starts the new
+  version and quits the old one.
 
 Install it the same way as the TUI: put `lazytrackit-gui` /
 `lazytrackit-gui.exe` next to it, in `~/.local/bin` or

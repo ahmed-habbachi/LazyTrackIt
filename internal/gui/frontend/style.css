@@ -290,6 +290,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .notice { background: var(--accent-pale); }
 .notice .ico { color: var(--positive); }
+.notice .btn { margin-left: auto; }
+.notice .btn .ico { color: inherit; }
 .error-banner { background: var(--negative-pale); color: var(--negative); font-weight: 600; }
 .error-banner .btn { color: var(--text); }
 
