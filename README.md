@@ -183,11 +183,17 @@ system tray plus a window with your week, built with
 same cached logins and remembered project/tags, and talks to the same
 providers. You can use it and the terminal UI side by side.
 
-- **Tray**: left-click shows or hides the window. The menu also shows
-  your check-in state, lets you check in or out, and has **Start at login**
-  and **Quit**. Closing the window only hides it; the app keeps running
-  until you choose **Quit**.
-- **Start at login**: tick it in the tray menu or the window's sidebar.
+- **Tray**: left-click shows or hides the window. The menu has a single
+  check in / check out entry (when you're checked in it also says where
+  and since when), **Restart to update** once an update is installed, and
+  **Quit**. Closing the window only hides it; the app keeps running until
+  you choose **Quit**.
+- **Settings**: the button at the bottom of the sidebar opens one dialog
+  for everything that isn't your week: your providers (switch to one, add,
+  edit or remove them), **Start at login**, and the versions of
+  LazyTrackIt and of the active provider's server. The sidebar's footer
+  shows the active provider and both versions too.
+- **Start at login**: turn it on in Settings.
   This adds a login item (Windows: `HKCU\…\Run`; Linux:
   `~/.config/autostart/lazytrackit.desktop`) that starts the app with
   `--hidden`, so it boots straight into the tray without opening a window.
@@ -207,11 +213,36 @@ providers. You can use it and the terminal UI side by side.
   `check_in_reminder: "off"`.
 - **Updates**: these work like the TUI's auto-update, but each app only ever
   installs its own build. GUI archives are named
-  `lazytrackit-gui_<version>_<os>_<arch>_desktop.<ext>`.
+  `lazytrackit-gui_<version>_<os>_<arch>_desktop.<ext>`. Since the desktop
+  app tends to stay in the tray for days, it checks again about once a day
+  while it's running, and an hour later if a check couldn't reach GitHub.
+  Once an update is installed, the window shows a **Restart now** button and
+  the tray menu gets **Restart to update to vX**. Either one starts the new
+  version and quits the old one.
 
-Install it the same way as the TUI: put `lazytrackit-gui` /
-`lazytrackit-gui.exe` next to it, in `~/.local/bin` or
-`%LOCALAPPDATA%\Programs\lazytrackit\`.
+### Installing the desktop app
+
+- **Windows**: run `lazytrackit-setup_<version>_windows_amd64.exe` from the
+  release. It installs for your user only, so it needs no admin rights. The
+  app goes into `%LOCALAPPDATA%\Programs\LazyTrackIt\`, which you can write
+  to, so auto-update keeps working. It adds a Start Menu shortcut (and a
+  desktop one if you tick it), shows up in **Installed apps** for
+  uninstalling, and offers to start the app when it's done. Running a newer
+  installer upgrades in place. The installer isn't code-signed, so
+  SmartScreen may warn about an unknown publisher: click **More info** →
+  **Run anyway**. You can also skip the installer and extract the
+  `_desktop.zip` instead, as with the TUI.
+- **Linux**: extract the `_desktop.tar.gz` and put `lazytrackit-gui` in
+  `~/.local/bin`, next to the TUI.
+
+Either way, the first time a release build starts it adds itself to your
+app launcher: `~/.local/share/applications/lazytrackit.desktop` (with its
+icon) on Linux, or a Start Menu shortcut on Windows if the installer hasn't
+already made one. On Linux the entry follows the binary if you move it. If
+you delete the entry, it stays deleted. To have it added again, delete
+`launcher-created` from the state folder (`~/.local/state/lazytrackit` or
+`%LOCALAPPDATA%\lazytrackit`). Builds made with plain `go build` don't add
+an entry.
 
 **Linux requirements**: the app renders with WebKitGTK, so you need
 `libgtk-3-0` and `libwebkit2gtk-4.1-0` (preinstalled on most desktop
@@ -233,6 +264,18 @@ go build -tags gtk3 -o lazytrackit-gui ./cmd/lazytrackit-gui
 - **Windows**: no C compiler is needed, so it cross-compiles like the TUI.
   Add `-ldflags "-H windowsgui"` so no console window opens with it:
   `GOOS=windows go build -ldflags "-H windowsgui" -o lazytrackit-gui.exe ./cmd/lazytrackit-gui`.
+  The exe's icon, manifest (per-monitor DPI) and version details come from
+  `cmd/lazytrackit-gui/rsrc_windows_amd64.syso`, which Go links in on its
+  own. To change them, edit `packaging/windows/` (`lazytrackit.ico`,
+  `app.manifest`, `app.rc.in`) and run `packaging/windows/gen-syso.sh`
+  (needs `llvm-windres` or `windres`). The release workflow reruns it with
+  the tag's version.
+- **Windows installer**: `packaging/windows/lazytrackit.iss` is an
+  [Inno Setup 6](https://jrsoftware.org/isinfo.php) script. Build it on
+  Windows with
+  `iscc /DAppVersion=v1.2.3 /DNumVersion=1.2.3 /DBinDir=<folder with lazytrackit-gui.exe> packaging\windows\lazytrackit.iss`.
+  Releases build it in the `installer` job on a GitHub-hosted Windows
+  runner.
 - **Linux**: this needs cgo and the dev packages (Debian/Ubuntu:
   `sudo apt install build-essential libgtk-3-dev libwebkit2gtk-4.1-dev`;
   Arch: `sudo pacman -S base-devel gtk3 webkit2gtk-4.1`). Keep the
@@ -304,7 +347,7 @@ itself contains no account-specific configuration.
 - `[` / `]` — previous / next week
 - `t` — jump back to the current week
 - `c` — check in / check out (only when attendance is enabled, see below)
-- `p` — switch provider (only shown once more than one is configured)
+- `p` — providers: switch, add (`a`), edit (`e`) or remove (`d`)
 - `q` / `ctrl+c` — quit
 
 In the entry form: `tab`/`shift+tab` (or `↑`/`↓`) move between fields,
@@ -338,6 +381,29 @@ You can configure more than one provider under `providers:` in
 `config.yaml` — e.g. two different TrackIt accounts, or a staging and
 production environment (see the commented-out example in the starter
 config). Press `p` from the main list to switch between them.
+
+You can also add a provider from inside either app instead of editing the
+file: press `p` and pick **+ Add a provider…** in the terminal UI, or use
+**Add a provider** in the desktop app's Settings dialog. Pick the type
+(TrackIt, Toggl Track or week booking), fill in its fields, and save. A new
+TrackIt provider starts with the login settings (issuer, client ID,
+scopes) of one you already have, since a second account or environment
+usually shares them. The provider is appended to `config.yaml` without
+touching anything else in the file (your comments and layout stay as they
+are), and the app switches to it straight away, so a TrackIt provider asks
+you to sign in. API tokens and client secrets are saved in `config.yaml`
+just like when you write them by hand.
+
+Existing providers can be edited or removed the same way: in the terminal
+UI's provider list press `e` or `d` on one; in the desktop app use
+the provider list in the Settings dialog. A provider's name can't be changed (its
+saved login and remembered project are keyed by it). Editing rewrites only
+that provider's lines in `config.yaml` (comments inside that entry are
+dropped, since they described the old values); changing a TrackIt
+provider's login issuer or client ID signs you out of it. Removing one also
+deletes its saved login; you can't remove your last provider, and removing
+the one you're using switches to another (and updates `active_provider` if
+it pointed at it).
 
 Whichever provider you last switched to is remembered locally (alongside
 your cached tokens, so it doesn't roam between machines) and becomes the

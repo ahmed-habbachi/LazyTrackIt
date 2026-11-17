@@ -105,6 +105,15 @@ jobs:
           bin="lazytrackit-gui"
           if [ "${{ matrix.goos }}" = "windows" ]; then bin="lazytrackit-gui.exe"; fi
           version_pkg="github.com/ahmed-habbachi/lazytrackit/internal/version"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            # Stamp the tag into the exe's version details (the icon and
+            # manifest are the same either way).
+            if command -v llvm-windres >/dev/null || command -v x86_64-w64-mingw32-windres >/dev/null || command -v windres >/dev/null; then
+              packaging/windows/gen-syso.sh "${{ github.ref_name }}"
+            else
+              echo "::warning::no windres on the runner, so the exe keeps the committed resources (version 0.0.0)"
+            fi
+          fi
           go build -trimpath -tags gtk3 -ldflags "-s -w ${{ matrix.ldflags }} -X ${version_pkg}.Version=${{ github.ref_name }}" -o "$work/$bin" ./cmd/lazytrackit-gui
 
           mkdir -p dist
@@ -128,12 +137,49 @@ jobs:
           name: build-gui-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*
 
+  installer:
+    name: Build Windows installer
+    needs: build-gui
+    # Inno Setup only runs on Windows; GitHub's Windows image ships it.
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download the Windows GUI build
+        uses: actions/download-artifact@v4
+        with:
+          name: build-gui-windows-amd64
+          path: gui
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = '${{ github.ref_name }}'
+          $num = ($tag -replace '^v', '') -replace '[-+].*$', ''
+          Expand-Archive "gui\lazytrackit-gui_${tag}_windows_amd64_desktop.zip" -DestinationPath bin
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          & $iscc "/DAppVersion=$tag" "/DNumVersion=$num" "/DBinDir=$PWD\bin" "/DOutDir=$PWD\dist" packaging\windows\lazytrackit.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem dist\*.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            [IO.File]::WriteAllText("$($_.FullName).sha256", "$hash  $($_.Name)`n")
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-installer-windows-amd64
+          path: dist/*
+
   release:
     name: Publish release
-    needs: [build, build-gui]
+    needs: [build, build-gui, installer]
     # A failed GUI build (e.g. the self-hosted runner lacks the GTK/WebKit
-    # dev packages) must not block the TUI release; it just ships without
-    # GUI archives.
+    # dev packages) or installer build must not block the TUI release; it
+    # just ships without them.
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: self-hosted
     steps:
@@ -162,6 +208,7 @@ jobs:
 
             Desktop app (tray icon + window, can start with the system):
 
+            - **Windows installer (recommended on Windows)**: `lazytrackit-setup_${{ github.ref_name }}_windows_amd64.exe`
             - **Linux (x86_64)**: `lazytrackit-gui_${{ github.ref_name }}_linux_amd64_desktop.tar.gz`
             - **Windows (x86_64)**: `lazytrackit-gui_${{ github.ref_name }}_windows_amd64_desktop.zip`
 

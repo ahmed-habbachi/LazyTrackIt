@@ -16,16 +16,23 @@ const dateLayout = "2006-01-02"
 
 // State is the app-level status the frontend renders its chrome from.
 type State struct {
-	Version      string   `json:"version"`
-	SetupMessage string   `json:"setupMessage"` // non-empty: no usable config yet
-	Providers    []string `json:"providers"`
-	Active       string   `json:"active"`
-	NeedsLogin   bool     `json:"needsLogin"`
-	HasProfile   bool     `json:"hasProfile"`
-	Member       string   `json:"member"`
-	Attendance   bool     `json:"attendance"`
-	Autostart    bool     `json:"autostart"`
-	UpdateNotice string   `json:"updateNotice"`
+	Version      string       `json:"version"`
+	SetupMessage string       `json:"setupMessage"` // non-empty: no usable config yet
+	Providers    []string     `json:"providers"`
+	Active       string       `json:"active"`
+	NeedsLogin   bool         `json:"needsLogin"`
+	HasProfile   bool         `json:"hasProfile"`
+	Member       string       `json:"member"`
+	Attendance   bool         `json:"attendance"`
+	Autostart    bool         `json:"autostart"`
+	Update       UpdateStatus `json:"update"`
+}
+
+// UpdateStatus is what the window shows about self-update.
+type UpdateStatus struct {
+	Notice     string `json:"notice"`     // empty: nothing to show
+	Ready      string `json:"ready"`      // installed version awaiting a restart
+	CanRestart bool   `json:"canRestart"` // "Restart now" can work
 }
 
 // Project is a provider.Project for the frontend.

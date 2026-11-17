@@ -24,6 +24,11 @@ type CheckResult struct {
 	// Unwritable, if set, is the install directory the current user can't
 	// write to, meaning self-update can never succeed from there.
 	Unwritable string
+
+	// Failed reports that GitHub or the download couldn't be reached (e.g.
+	// offline), so trying again soon may work. It's never set together
+	// with Installed or Unwritable.
+	Failed bool
 }
 
 // CheckAndApply checks GitHub for a release newer than currentVersion and, if
@@ -62,7 +67,7 @@ func CheckAndApplyProduct(ctx context.Context, currentVersion string, product Pr
 	rel, err := fetchLatestRelease(ctx)
 	if err != nil || rel == nil {
 		logf("fetching latest release failed: %v", err)
-		return CheckResult{}
+		return CheckResult{Failed: true}
 	}
 	if !isNewer(rel.TagName, currentVersion) {
 		logf("up to date: latest release %s is not newer than running %s", rel.TagName, currentVersion)
@@ -85,14 +90,14 @@ func CheckAndApplyProduct(ctx context.Context, currentVersion string, product Pr
 	archivePath, err := downloadToTemp(ctx, archiveAsset.BrowserDownloadURL, "lazytrackit-update-*"+archiveExtDot())
 	if err != nil {
 		logf("downloading %s failed: %v", archiveAsset.Name, err)
-		return CheckResult{}
+		return CheckResult{Failed: true}
 	}
 	defer os.Remove(archivePath)
 
 	wantSum, err := fetchChecksum(ctx, checksumAsset.BrowserDownloadURL)
 	if err != nil {
 		logf("fetching checksum failed: %v", err)
-		return CheckResult{}
+		return CheckResult{Failed: true}
 	}
 	if err := verifySHA256(archivePath, wantSum); err != nil {
 		logf("checksum verification failed: %v", err)

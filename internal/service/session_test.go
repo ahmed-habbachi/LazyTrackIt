@@ -606,3 +606,29 @@ func TestConnect(t *testing.T) {
 		}
 	})
 }
+
+type versionedFake struct {
+	*fakeProvider
+	version string
+}
+
+func (v versionedFake) BackendVersion(context.Context) (string, error) { return v.version, nil }
+
+func TestBackendVersion(t *testing.T) {
+	s, err := NewSession(map[string]provider.Provider{
+		"v": versionedFake{newFake("v"), "4.2.1"},
+		"p": newFake("p"),
+	}, []string{"p", "v"}, "v", newMemStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Current().BackendVersion(context.Background()); err != nil || got != "4.2.1" {
+		t.Errorf("versioned: %q, %v", got, err)
+	}
+	if err := s.SwitchProvider("p"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Current().BackendVersion(context.Background()); err != nil || got != "" {
+		t.Errorf("unversioned: %q, %v", got, err)
+	}
+}

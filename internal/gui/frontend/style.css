@@ -188,26 +188,58 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .attendance.in .attendance-since { padding-left: 14px; }
 .attendance .btn { width: 100%; }
 
-.rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
-.version { margin: 0; padding: 0 4px; font-size: 11px; color: var(--text-3); }
+.rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+.settings-btn { width: 100%; justify-content: flex-start; }
+.rail-versions { padding: 0 4px; font-size: 11px; line-height: 1.5; color: var(--text-3); }
+.rail-versions p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-provider { font-weight: 700; color: var(--text-2); }
 
-/* ---------- settings group ---------- */
-.settings { padding: 10px 12px 4px; }
-.settings .eyebrow { margin-bottom: 2px; }
+/* ---------- settings dialog ---------- */
+.settings-section { display: flex; flex-direction: column; gap: 8px; }
+.settings-section + .settings-section { padding-top: 14px; border-top: 1px solid var(--border); }
+.settings-section .eyebrow { margin: 0; }
+.settings-section > .link-btn { align-self: flex-start; margin-left: -6px; }
+.about { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.about-row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); }
+.about-row span:last-child { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .setting {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   min-height: 38px; padding: 4px 0; cursor: pointer;
 }
 .setting + .setting { border-top: 1px solid var(--border); }
 .setting-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
-.setting select {
-  min-width: 0; max-width: 60%; height: 28px; padding: 0 8px;
-  border: 1px solid var(--border); border-radius: var(--radius-s);
-  background: var(--bg-base); font-size: 12.5px; font-weight: 600; cursor: pointer;
-  transition: border-color var(--fast) var(--ease);
+
+.link-btn {
+  display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 6px;
+  border: 0; border-radius: var(--radius-s); background: transparent; cursor: pointer;
+  color: var(--action); font-size: 12px; font-weight: 700;
+  transition: background var(--fast) var(--ease);
 }
-.setting select:hover { border-color: var(--border-hover); }
-.setting select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.link-btn .ico { width: 13px; height: 13px; }
+.link-btn:hover { background: var(--neutral-1); }
+.link-btn:disabled { color: var(--text-3); cursor: default; background: transparent; }
+
+/* "Manage providers" dialog */
+.pm-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-m); }
+.pm-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px 8px 12px; }
+.pm-row + .pm-row { border-top: 1px solid var(--border); }
+.pm-main { flex: 1; min-width: 0; }
+.pm-name { font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pm-type { font-size: 11.5px; color: var(--text-3); }
+.pm-active {
+  padding: 1px 7px; border-radius: 99px; font-size: 10.5px; font-weight: 800;
+  background: var(--accent-pale); color: var(--action);
+}
+.pm-row .icon-btn:disabled { opacity: .35; cursor: default; background: transparent; }
+.pm-remove:not(:disabled):hover { color: var(--negative); background: var(--negative-pale); }
+
+/* "Add a provider" dialog */
+.pf { display: flex; flex-direction: column; gap: 12px; }
+.pf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pf-fields { display: flex; flex-direction: column; gap: 12px; }
+.pf-toggle { border: 1px solid var(--border); border-radius: var(--radius-m); padding: 6px 10px; }
+.pf-sub { display: block; font-size: 11px; font-weight: 600; color: var(--text-3); }
+.pf-hint { font-size: 12px; }
 
 /* Taiga-style switch for the checkbox */
 .toggle input[type="checkbox"] {
@@ -258,6 +290,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .notice { background: var(--accent-pale); }
 .notice .ico { color: var(--positive); }
+.notice .btn { margin-left: auto; }
+.notice .btn .ico { color: inherit; }
 .error-banner { background: var(--negative-pale); color: var(--negative); font-weight: 600; }
 .error-banner .btn { color: var(--text); }
 
@@ -305,7 +339,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   padding: 8px 12px 8px 0; width: 100%; border: 0; text-align: left;
   background: transparent; cursor: pointer;
   transition: background var(--fast) var(--ease);
-  animation: rise var(--normal) var(--ease) both;
+  animation: rise var(--normal) var(--ease) backwards;
 }
 .entry + .entry { border-top: 1px solid var(--border); }
 .entry::before {
@@ -342,6 +376,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }
 .field input:hover, .field select:hover, .field textarea:hover { border-color: var(--border-hover); }
+.field input:not([type="checkbox"]), .field select { height: 34px; }
+.field select { padding-top: 0; padding-bottom: 0; }
+.field input:disabled { background: var(--neutral-1); color: var(--text-2); border-color: transparent; cursor: not-allowed; }
 .field textarea { resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus {
   outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
@@ -382,17 +419,23 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .drawer-foot { display: flex; gap: 6px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
 .spacer { flex: 1; }
 
+/* Centred with inset + auto margins, not translate(-50%, -50%): a transform
+   puts the dialog at a fractional pixel whenever its size is odd, and
+   WebKit then renders it as a smoothed layer, blurring the text. */
 .modal {
-  position: fixed; z-index: 21; top: 50%; left: 50%; width: min(400px, calc(100vw - 32px));
-  transform: translate(-50%, -50%);
+  position: fixed; z-index: 21; inset: 0; margin: auto; height: fit-content;
+  width: min(400px, calc(100vw - 32px));
   padding: 20px; border-radius: var(--radius-l); background: var(--bg-elev);
   box-shadow: var(--shadow-m); border: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 14px;
-  animation: pop var(--normal) var(--ease) both;
+  max-height: calc(100vh - 32px); overflow-y: auto;
+  animation: pop var(--normal) var(--ease) backwards;
 }
 #modal-scrim { z-index: 20; }
 #modal-body { display: flex; flex-direction: column; gap: 12px; }
-@keyframes pop { from { opacity: 0; transform: translate(-50%, -47%) scale(.98); } }
+/* "backwards" so that once it has played, no transform is left on the
+   dialog (see above). */
+@keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 .modal p { margin: 0; color: var(--text-2); }
 .modal-foot { display: flex; justify-content: flex-end; gap: 6px; }
 .modal-foot:empty { display: none; }
@@ -439,10 +482,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .brand, .week-nav, .rail-foot { grid-column: 1 / -1; }
   .rail:has(.attendance[hidden]) .meter { grid-column: 1 / -1; }
   .rail-foot { margin-top: 0; }
-  .settings { display: flex; flex-wrap: wrap; align-items: center; column-gap: 20px; padding: 6px 12px; }
-  .settings .eyebrow { margin: 0; flex-basis: 100%; }
-  .setting + .setting { border-top: 0; }
-  .setting { flex: 1 1 160px; }
+  .rail-foot { flex-direction: row; align-items: center; gap: 12px; }
+  .settings-btn { width: auto; }
+  .rail-versions { flex: 1; min-width: 0; text-align: right; }
   .ledger-head { padding: 10px 12px; }
   .ledger > .notice, .ledger > .error-banner { margin: 10px 12px 0; }
   .days { padding: 12px 12px 20px; }

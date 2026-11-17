@@ -207,3 +207,22 @@ func (sc Scope) DeleteEntry(ctx context.Context, e provider.TimeEntry) error {
 	defer done()
 	return sc.prov.DeleteTimeEntry(ctx, e)
 }
+
+// BackendVersion returns the active provider's server version, or "" if
+// its type can't report one.
+func (sc Scope) BackendVersion(ctx context.Context) (string, error) {
+	v, ok := sc.prov.(provider.BackendVersioner)
+	if !ok {
+		return "", nil
+	}
+	ctx, done, err := sc.begin(ctx, RequestTimeout)
+	if err != nil {
+		return "", err
+	}
+	defer done()
+	version, err := v.BackendVersion(ctx)
+	if err = sc.finish(err); err != nil {
+		return "", err
+	}
+	return version, nil
+}

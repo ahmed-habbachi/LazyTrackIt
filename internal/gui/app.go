@@ -10,7 +10,6 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/ahmed-habbachi/lazytrackit/internal/config"
 	"github.com/ahmed-habbachi/lazytrackit/internal/service"
@@ -53,6 +52,11 @@ const testNotificationDelay = 3 * time.Second
 
 // Run starts the desktop app and blocks until it quits.
 func Run(opts Options) error {
+	waitForRestartedProcess()
+	// Self-update replaces the file at this path, so find it now: once an
+	// update is installed the OS may report the old, renamed-away file.
+	exe, exeErr := update.Executable()
+
 	host := &wailsHost{}
 	svc := buildService(host)
 
@@ -62,10 +66,10 @@ func Run(opts Options) error {
 	}
 
 	services := []application.Service{application.NewService(svc)}
-	var notifier *optionalNotifications
+	var notifier platformNotifier
 	if svc.session != nil && svc.remindersOn {
-		notifier = &optionalNotifications{ns: notifications.New()}
-		services = append(services, application.NewService(notifier))
+		notifier = newPlatformNotifier()
+		services = append(services, notifier.services()...)
 	}
 
 	var window *application.WebviewWindow
@@ -109,20 +113,34 @@ func Run(opts Options) error {
 	})
 
 	newTray(app, window, svc)
+	if exeErr == nil {
+		go ensureLauncher(exe)
+		svc.restart = func() error {
+			if err := relaunch(exe); err != nil {
+				return fmt.Errorf("starting the new version: %w", err)
+			}
+			app.Quit()
+			return nil
+		}
+	}
 
 	if svc.session != nil {
-		go checkForUpdate(svc)
 		app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+			if !svc.updatesDisabled {
+				go startUpdater(app.Context(), svc)
+			}
 			if opts.StartHidden {
 				// The frontend only boots once the window is shown, so fill
 				// in the tray's check-in state from Go (never starting a
 				// login).
 				go svc.warmUp()
 			}
-			if notifier != nil && notifier.ready.Load() {
-				dn := startReminder(app, window, svc, notifier.ns)
-				if opts.TestNotification {
-					time.AfterFunc(testNotificationDelay, dn.ShowCheckInReminder)
+			if notifier != nil {
+				if rn := notifier.start(app, window); rn != nil {
+					startReminder(app, svc, rn)
+					if opts.TestNotification {
+						time.AfterFunc(testNotificationDelay, rn.ShowCheckInReminder)
+					}
 				}
 			}
 		})
@@ -131,16 +149,13 @@ func Run(opts Options) error {
 }
 
 // startReminder starts the check-in reminder loop (see reminder.go) for the
-// life of the app, and returns its notifier.
-func startReminder(app *application.App, window *application.WebviewWindow, svc *Service, ns *notifications.NotificationService) *desktopNotifier {
-	dn := newDesktopNotifier(ns, app, window)
-	dn.register()
-	r := newReminder(svc, svc.reminderAt, dn)
+// life of the app.
+func startReminder(app *application.App, svc *Service, rn reminderNotifier) {
+	r := newReminder(svc, svc.reminderAt, rn)
 	svc.mu.Lock()
 	svc.reminder = r
 	svc.mu.Unlock()
 	go r.run(app.Context())
-	return dn
 }
 
 // buildService loads the config and providers. Problems that the user has
@@ -182,21 +197,22 @@ func buildService(host Host) *Service {
 	return svc
 }
 
-// checkForUpdate installs a newer GUI release in the background, the same
-// best-effort way the TUI does (see update.CheckAndApply).
-func checkForUpdate(svc *Service) {
-	if svc.updatesDisabled {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	res := update.CheckAndApplyProduct(ctx, version.Version, update.GUI)
-	switch {
-	case res.Installed:
-		svc.setUpdateNotice(fmt.Sprintf("Update %s installed — restart LazyTrackIt to use it.", res.NewVersion))
-	case res.Unwritable != "":
-		svc.setUpdateNotice(fmt.Sprintf("Installed at %s, which you can't write to, so auto-update can't work. Move LazyTrackIt to a folder you own to enable it.", res.Unwritable))
-	}
+// startUpdater installs newer GUI releases in the background for the life
+// of the app, the same best-effort way the TUI does at start (see
+// update.CheckAndApply and runUpdater).
+func startUpdater(ctx context.Context, svc *Service) {
+	t := time.NewTicker(updateTick)
+	defer t.Stop()
+	runUpdater(ctx, svc, func(ctx context.Context) update.CheckResult {
+		return update.CheckAndApplyProduct(ctx, version.Version, update.GUI)
+	}, func() bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-t.C:
+			return true
+		}
+	}, wallClock)
 }
 
 func showWindow(w *application.WebviewWindow) {

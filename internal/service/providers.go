@@ -22,14 +22,9 @@ func BuildProviders(cfg *config.Config) (map[string]provider.Provider, []string,
 	providers := make(map[string]provider.Provider, len(cfg.Providers))
 	names := make([]string, 0, len(cfg.Providers))
 	for name, pcfg := range cfg.Providers {
-		prov, err := newProvider(name, pcfg)
+		prov, err := buildProvider(name, pcfg)
 		if err != nil {
 			return nil, nil, err
-		}
-		if pcfg.Attendance {
-			if _, ok := prov.(provider.Attendance); !ok {
-				return nil, nil, fmt.Errorf("provider %q has attendance enabled, but type %q doesn't support check-in/check-out", name, pcfg.Type)
-			}
 		}
 		providers[name] = prov
 		names = append(names, name)

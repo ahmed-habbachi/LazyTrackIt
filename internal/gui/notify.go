@@ -1,101 +1,38 @@
 package gui
 
 import (
-	"context"
-	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 const (
 	checkInReminderID  = "lazytrackit-check-in-reminder"
 	checkInCategoryID  = "lazytrackit-check-in"
 	checkInActionID    = "check-in"
+	checkInTitle       = "Time to check in"
 	checkInReminderTxt = "You haven't checked in yet today."
 )
 
-// optionalNotifications runs the Wails notification service without letting
-// it take the app down: its startup can fail (e.g. no notification daemon
-// on D-Bus, or a locked-down Windows registry), and a failing service
-// startup aborts the whole app. Reminders are just skipped then. Wrapping it
-// also keeps its methods out of the frontend bindings.
-type optionalNotifications struct {
-	ns    *notifications.NotificationService
-	ready atomic.Bool
+// platformNotifier delivers the check-in reminder with the OS's notification
+// system: D-Bus on Linux (notify_linux.go), the Wails notification service
+// elsewhere (notify_wails.go).
+type platformNotifier interface {
+	// services are Wails services the notifier needs registered at startup.
+	services() []application.Service
+	// start readies it once the app runs; nil means notifications aren't
+	// available, so reminders are skipped.
+	start(app *application.App, window *application.WebviewWindow) reminderNotifier
 }
 
-func (o *optionalNotifications) ServiceStartup(ctx context.Context, opts application.ServiceOptions) error {
-	if err := o.ns.ServiceStartup(ctx, opts); err != nil {
-		fmt.Fprintln(os.Stderr, "lazytrackit-gui: notifications unavailable, check-in reminders are off:", err)
-		return nil
-	}
-	o.ready.Store(true)
-	return nil
-}
-
-func (o *optionalNotifications) ServiceShutdown() error {
-	if o.ready.Load() {
-		return o.ns.ServiceShutdown()
-	}
-	return nil
-}
-
-// desktopNotifier shows the check-in reminder through the OS notification
-// service (D-Bus notifications on Linux, toasts on Windows).
-type desktopNotifier struct {
-	svc      *notifications.NotificationService
-	iconPath string // the app icon on disk, for Linux notification daemons
-}
-
-// newDesktopNotifier wires the reminder's "Check in" button and a click on
-// the notification itself to open the window's check-in dialog.
-func newDesktopNotifier(ns *notifications.NotificationService, app *application.App, window *application.WebviewWindow) *desktopNotifier {
-	ns.OnNotificationResponse(func(res notifications.NotificationResult) {
-		if res.Error != nil || res.Response.ID != checkInReminderID {
-			return
-		}
-		switch res.Response.ActionIdentifier {
-		case checkInActionID, notifications.DefaultActionIdentifier:
-			application.InvokeAsync(func() {
-				showWindow(window)
-				app.Event.Emit(EventNavigate, "attendance")
-			})
-		}
+// openCheckIn shows the window's check-in dialog, for a click on the
+// reminder or its "Check in" button.
+func openCheckIn(app *application.App, window *application.WebviewWindow) {
+	application.InvokeAsync(func() {
+		showWindow(window)
+		app.Event.Emit(EventNavigate, "attendance")
 	})
-	return &desktopNotifier{svc: ns, iconPath: writeNotificationIcon()}
-}
-
-// register declares the reminder's action button. It must run after the
-// notification service has started.
-func (n *desktopNotifier) register() {
-	_ = n.svc.RegisterNotificationCategory(notifications.NotificationCategory{
-		ID:      checkInCategoryID,
-		Actions: []notifications.NotificationAction{{ID: checkInActionID, Title: "Check in"}},
-	})
-}
-
-func (n *desktopNotifier) ShowCheckInReminder() {
-	opts := notifications.NotificationOptions{
-		ID:         checkInReminderID,
-		Title:      "Time to check in",
-		Body:       checkInReminderTxt,
-		CategoryID: checkInCategoryID,
-	}
-	if n.iconPath != "" {
-		// On Windows an attachment without a type is a full-width inline
-		// image, which blows the toast up; appLogoOverride shows it as the
-		// small logo beside the text instead. Linux ignores the type.
-		opts.Attachments = []notifications.NotificationAttachment{{Path: n.iconPath, Type: "appLogoOverride"}}
-	}
-	_ = n.svc.SendNotificationWithActions(opts)
-}
-
-func (n *desktopNotifier) ClearCheckInReminder() {
-	_ = n.svc.RemoveNotification(checkInReminderID)
 }
 
 // writeNotificationIcon puts the app icon in the user cache directory, since

@@ -48,6 +48,15 @@ export const api = {
   checkIn: (locationId, note) => call("CheckIn", locationId, note),
   checkOut: (note) => call("CheckOut", note),
   setAutostart: (enabled) => call("SetAutostart", enabled),
+  providerTypes: () => call("ProviderTypes"),
+  newProviderDraft: (type) => call("NewProviderDraft", type),
+  addProvider: (draft) => call("AddProvider", draft),
+  providerList: () => call("ProviderList"),
+  backendVersion: () => call("BackendVersion"),
+  providerDraft: (name) => call("ProviderDraft", name),
+  updateProvider: (draft) => call("UpdateProvider", draft),
+  removeProvider: (name) => call("RemoveProvider", name),
+  restartToUpdate: () => call("RestartToUpdate"),
 };
 
 // on subscribes to a Go-emitted event, handing the callback its payload.

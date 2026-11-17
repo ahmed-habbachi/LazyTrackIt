@@ -174,6 +174,11 @@ func writeTemp(r io.Reader, perm os.FileMode) (string, error) {
 	return out.Name(), nil
 }
 
+// Executable is the path self-update installs to: the running executable
+// with symlinks resolved. Capture it before an update is installed, since
+// afterwards the OS may report the renamed-away old file instead.
+func Executable() (string, error) { return currentExecutable() }
+
 // currentExecutable returns the running executable's path with symlinks
 // resolved, so the update replaces the real file rather than a link to it.
 func currentExecutable() (string, error) {

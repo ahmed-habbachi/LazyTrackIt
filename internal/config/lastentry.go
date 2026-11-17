@@ -16,6 +16,10 @@ type LastEntryDefaults struct {
 	TagIDs    []string `json:"tag_ids"`
 }
 
+// StateDir is the directory LazyTrackIt keeps machine-local state in (see
+// lastEntryStateDir).
+func StateDir() (string, error) { return lastEntryStateDir() }
+
 // lastEntryStateDir returns the directory LazyTrackIt stores per-run UI
 // state in, honoring XDG_STATE_HOME when set, and otherwise defaulting to
 // the platform's normal place for local (non-roaming) app state: %LOCALAPPDATA%

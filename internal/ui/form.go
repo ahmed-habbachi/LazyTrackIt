@@ -728,7 +728,7 @@ func renderField(label, value string, focused bool) string {
 	l := fieldLabelStyle.Render(label + ":")
 	if focused {
 		marker = focusedFieldStyle.Render("▸ ")
-		l = focusedFieldStyle.Render(label + ":")
+		l = fieldLabelStyle.Foreground(colorAccent).Bold(true).Render(label + ":")
 	}
 	return marker + l + " " + value + "\n"
 }

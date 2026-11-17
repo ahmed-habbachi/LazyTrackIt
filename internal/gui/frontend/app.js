@@ -9,6 +9,7 @@ import { hydrateIcons, icon } from "./icons.js";
 import { closeModalOfKind, dismissModal, modalOpen, openModal } from "./modal.js";
 import { closeDrawer, drawerOpen, initEntryForm, openEdit, openNew, setProjects } from "./entryform.js";
 import { openAttendance, refreshAttendance, renderAttendance, setAttendanceEnabled } from "./attendance.js";
+import { initSettings, openSettings } from "./settings.js";
 
 const state = {
   day: "",          // any day of the shown week ("" = current week)
@@ -18,6 +19,10 @@ const state = {
   weekRequest: 0,   // drops responses for a week no longer shown
   startRequest: 0,  // drops results of a start() superseded by a newer one
   statusTimer: 0,
+  active: "",         // active provider's name
+  appVersion: "",
+  backendVersion: "", // the active provider's server version, once known
+  update: { notice: "" }, // gui.UpdateStatus
 };
 
 // ---------- boot ----------
@@ -49,6 +54,7 @@ async function start() {
     state.colors = new Map(projects.map((p) => [p.id, p.color]));
     setProjects(projects);
     renderChrome(await api.state());
+    loadBackendVersion();
     await loadWeek({ afterStart: true });
   } catch (err) {
     if (isStale(err) || req !== state.startRequest) return;
@@ -178,23 +184,64 @@ function renderSkeleton() {
 
 function renderChrome(st) {
   $("member").textContent = st.member || (st.needsLogin ? "Not signed in" : " ");
-  $("version").textContent = /^v?\d/.test(st.version) ? `v${st.version.replace(/^v/, "")}` : st.version;
-  $("autostart").checked = st.autostart;
+  if (st.active !== state.active) state.backendVersion = "";
+  state.active = st.active || "";
+  state.appVersion = displayVersion(st.version);
   setAttendanceEnabled(st.attendance, !st.needsLogin);
   if (st.attendance) refreshAttendance();
-
-  const providers = st.providers || [];
-  $("provider-field").hidden = providers.length < 2;
-  $("provider").replaceChildren(...providers.map((p) => h("option", { value: p }, p)));
-  $("provider").value = st.active;
-  $("provider").dataset.active = st.active;
-  showUpdateNotice(st.updateNotice);
+  renderVersions();
+  showUpdateNotice(st.update);
 }
 
-function showUpdateNotice(notice) {
-  $("update-notice").dataset.persistent = notice || "";
-  $("update-notice").textContent = notice || "";
-  $("update-notice").hidden = !notice;
+// displayVersion prefixes a numeric version with "v"; "dev" stays as is.
+function displayVersion(v) {
+  return /^v?\d/.test(v || "") ? `v${v.replace(/^v/, "")}` : (v || "");
+}
+
+// renderVersions fills the rail's footer: the active provider and its
+// server version, and LazyTrackIt's own.
+function renderVersions() {
+  $("provider-name").textContent = state.active;
+  $("backend-version").textContent = state.backendVersion ? `· server ${state.backendVersion}` : "";
+  $("backend-version").hidden = !state.backendVersion;
+  $("version").textContent = `LazyTrackIt ${state.appVersion}`;
+}
+
+// loadBackendVersion asks the active provider's server for its version;
+// it's informational, so failures just leave it out.
+async function loadBackendVersion() {
+  const active = state.active;
+  try {
+    const v = await api.backendVersion();
+    if (active !== state.active) return;
+    state.backendVersion = v ? displayVersion(v) : "";
+    renderVersions();
+  } catch { /* not shown */ }
+}
+
+// showUpdateNotice shows what self-update has to say (gui.UpdateStatus):
+// an installed update gets a "Restart now" button. It stays until replaced;
+// flash() shows its message over it for a moment.
+function showUpdateNotice(update) {
+  state.update = update || { notice: "" };
+  const el = $("update-notice");
+  el.replaceChildren(state.update.notice || "");
+  if (state.update.ready && state.update.canRestart) {
+    el.append(h("button", {
+      class: "btn btn-primary btn-sm", type: "button", onclick: restartToUpdate,
+    }, icon("refresh-cw"), "Restart now"));
+  }
+  el.hidden = !state.update.notice;
+}
+
+async function restartToUpdate(e) {
+  e.currentTarget.disabled = true;
+  try {
+    await api.restartToUpdate(); // the app quits and the new version opens
+  } catch (err) {
+    e.currentTarget.disabled = false;
+    showError(errorMessage(err));
+  }
 }
 
 function showError(message, retry) {
@@ -209,10 +256,9 @@ function showError(message, retry) {
 function flash(message) {
   clearTimeout(state.statusTimer);
   const notice = $("update-notice");
-  const previous = notice.dataset.persistent || "";
   notice.replaceChildren(icon("circle-check"), message);
   notice.hidden = false;
-  state.statusTimer = setTimeout(() => showUpdateNotice(previous), 4000);
+  state.statusTimer = setTimeout(() => showUpdateNotice(state.update), 4000);
 }
 
 // ---------- login prompt ----------
@@ -241,32 +287,39 @@ function bindChrome() {
   $("attendance-btn").addEventListener("click", openAttendance);
   $("modal-scrim").addEventListener("click", dismissModal);
 
-  $("autostart").addEventListener("change", async (e) => {
-    const want = e.target.checked;
-    try {
-      await api.setAutostart(want);
-    } catch (err) {
-      e.target.checked = !want;
-      showError(`Couldn't change "Start at login": ${errorMessage(err)}`);
-    }
-  });
-
-  $("provider").addEventListener("change", async (e) => {
-    const previous = e.target.dataset.active || "";
-    try {
-      await api.switchProvider(e.target.value);
-      e.target.dataset.active = e.target.value;
-      state.day = "";
-      state.week = null;
-      await start();
-    } catch (err) {
-      e.target.value = previous;
-      showError(errorMessage(err));
-    }
+  $("open-settings").addEventListener("click", openSettings);
+  initSettings({
+    switchTo, reloadActive, flash,
+    refreshChrome: async () => renderChrome(await api.state()),
+    showError: (message) => showError(message),
+    versions: () => ({ app: state.appVersion, backend: state.backendVersion, provider: state.active }),
   });
 
   document.addEventListener("keydown", onKey);
   document.addEventListener("lt:reconnect", () => start());
+}
+
+// reloadActive reloads after the active provider changed underneath the
+// UI (edited, or a removal switched to another one).
+async function reloadActive() {
+  state.day = "";
+  state.week = null;
+  renderChrome(await api.state());
+  await start();
+}
+
+// switchTo makes name the active provider and loads it (logging in first
+// if it needs that).
+async function switchTo(name) {
+  try {
+    await api.switchProvider(name);
+    state.day = "";
+    state.week = null;
+    renderChrome(await api.state());
+    await start();
+  } catch (err) {
+    showError(errorMessage(err));
+  }
 }
 
 function onKey(e) {
@@ -296,7 +349,6 @@ function bindEvents() {
   on("login:prompt", showLoginPrompt);
   on("attendance", renderAttendance);
   on("update", showUpdateNotice);
-  on("autostart", (enabled) => { $("autostart").checked = !!enabled; });
   on("navigate", (view) => {
     if (view === "attendance" && !$("attendance-card").hidden) openAttendance();
   });
