@@ -149,6 +149,11 @@ jobs:
   installer:
     name: Build Windows installer
     needs: build-gui
+    # build-gui counts as failed if any of its matrix entries fails, which
+    # would skip this job even when the Windows GUI build succeeded. Run
+    # anyway; the download step fails on its own if the Windows build is
+    # missing.
+    if: ${{ !cancelled() }}
     # Inno Setup only runs on Windows; GitHub's Windows image ships it.
     runs-on: windows-latest
     steps:
