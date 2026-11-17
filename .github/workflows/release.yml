@@ -66,28 +66,37 @@ jobs:
   #   - Windows: no cgo needed (WebView2 is loaded at runtime), so it
   #     cross-compiles like the TUI. -H windowsgui stops Windows from
   #     opening a console window next to it.
-  #   - Linux: needs cgo plus the GTK 3 / WebKitGTK 4.1 development
-  #     packages on the runner (Debian/Ubuntu: libgtk-3-dev
-  #     libwebkit2gtk-4.1-dev), so it's only built natively for amd64.
+  #   - Linux: needs cgo (a C compiler) plus the GTK 3 / WebKitGTK 4.1
+  #     development packages, so it's built natively for amd64 on a
+  #     GitHub-hosted Ubuntu runner, which has gcc and can apt-get the
+  #     packages (the self-hosted runner has neither).
   #     The gtk3 build tag selects Wails' GTK 3 / WebKitGTK 4.1 backend;
   #     without it Wails v3 links GTK 4 / WebKitGTK 6.0.
   build-gui:
     name: Build GUI ${{ matrix.goos }}/${{ matrix.goarch }}
-    runs-on: self-hosted
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
           - goos: linux
             goarch: amd64
+            runner: ubuntu-24.04
             cgo: "1"
             ldflags: ""
           - goos: windows
             goarch: amd64
+            runner: self-hosted
             cgo: "0"
             ldflags: "-H windowsgui"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install GTK / WebKitGTK dev packages
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -140,6 +149,11 @@ jobs:
   installer:
     name: Build Windows installer
     needs: build-gui
+    # build-gui counts as failed if any of its matrix entries fails, which
+    # would skip this job even when the Windows GUI build succeeded. Run
+    # anyway; the download step fails on its own if the Windows build is
+    # missing.
+    if: ${{ !cancelled() }}
     # Inno Setup only runs on Windows; GitHub's Windows image ships it.
     runs-on: windows-latest
     steps:
@@ -177,8 +191,7 @@ jobs:
   release:
     name: Publish release
     needs: [build, build-gui, installer]
-    # A failed GUI build (e.g. the self-hosted runner lacks the GTK/WebKit
-    # dev packages) or installer build must not block the TUI release; it
+    # A failed GUI build or installer build must not block the TUI release; it
     # just ships without them.
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: self-hosted
