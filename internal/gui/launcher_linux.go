@@ -17,13 +17,25 @@ const launcherKey = "X-LazyTrackIt-Managed=true"
 // and its icon. On later runs it keeps an entry it wrote pointing at the
 // current binary (e.g. after moving it), but doesn't bring back one that
 // was deleted.
-func installLauncher(exe string, firstRun bool) error {
+//
+// packaged means the system package manager installed the app (see
+// update.PackageManaged): the package provides the entry, so none is
+// written.
+func installLauncher(exe string, firstRun, packaged bool) error {
 	data, err := xdgDataHome()
 	if err != nil {
 		return err
 	}
 	path := filepath.Join(data, "applications", "lazytrackit.desktop")
 	icon := filepath.Join(data, "icons", "hicolor", "256x256", "apps", "lazytrackit.png")
+	if packaged {
+		// The package installs its own entry; one written by an earlier
+		// copy (e.g. from the tar.gz) would hide it, so drop that.
+		if old, err := os.ReadFile(path); err == nil && bytes.Contains(old, []byte(launcherKey)) {
+			return os.Remove(path)
+		}
+		return nil
+	}
 	want := []byte(desktopEntry(exe, icon))
 
 	old, err := os.ReadFile(path)

@@ -77,7 +77,11 @@ func bootstrapConfig() error {
 		return err
 	}
 	fmt.Printf("No configuration found, so a starter config was written to:\n\n  %s\n\n", path)
-	fmt.Println("Edit it with your Case.TrackIt base URL and Keycloak client_id, then run lazytrackit again.")
+	if config.Preset() {
+		fmt.Println("It's already set up for your TrackIt server: run lazytrackit again to sign in.")
+	} else {
+		fmt.Println("Edit it with your Case.TrackIt base URL and Keycloak client_id, then run lazytrackit again.")
+	}
 	pauseOnWindows()
 	return nil
 }

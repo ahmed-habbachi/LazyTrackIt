@@ -6,7 +6,7 @@ import {
   $, h, addDays, clock, formatDayMonth, formatMinutes, formatRange, formatWeekday,
 } from "./dom.js";
 import { hydrateIcons, icon } from "./icons.js";
-import { closeModalOfKind, dismissModal, modalOpen, openModal } from "./modal.js";
+import { button, closeModal, closeModalOfKind, dismissModal, modalOpen, openModal } from "./modal.js";
 import { closeDrawer, drawerOpen, initEntryForm, openEdit, openNew, setProjects } from "./entryform.js";
 import { openAttendance, refreshAttendance, renderAttendance, setAttendanceEnabled } from "./attendance.js";
 import { initSettings, openSettings } from "./settings.js";
@@ -36,10 +36,45 @@ async function boot() {
   const st = await api.state();
   renderChrome(st);
   if (st.setupMessage) {
-    openModal({ title: "Welcome to LazyTrackIt", body: [h("p", {}, st.setupMessage)], dismissible: false });
+    // The config can't be used, so nothing works until it's fixed and the
+    // app restarted; the message stays in the error banner once closed.
+    openModal({
+      title: "LazyTrackIt needs setting up",
+      body: [h("p", {}, st.setupMessage)],
+      actions: [button("Close", "primary", closeModal)],
+      onDismiss: () => showError(st.setupMessage),
+    });
+    return;
+  }
+  if (st.welcome) {
+    showWelcome(st.welcome);
     return;
   }
   await start();
+}
+
+// showWelcome greets a first run: a starter config with placeholder values
+// was just written, so signing in would only fail. It offers Settings to
+// fill in the provider; "Later" (or Escape) tries the config as it is.
+function showWelcome(message) {
+  let toSettings = false;
+  openModal({
+    title: "Welcome to LazyTrackIt",
+    body: [h("p", {}, message)],
+    actions: [
+      button("Later", "ghost", closeModal),
+      button("Open settings", "primary", () => { toSettings = true; closeModal(); }),
+    ],
+    onDismiss: () => {
+      if (!toSettings) {
+        start();
+        return;
+      }
+      // Editing the active provider (or adding one) in Settings loads it.
+      showError("Set up your provider in Settings to get started.", start);
+      openSettings();
+    },
+  });
 }
 
 // start logs in (if needed) and loads the profile and current week.
@@ -220,7 +255,8 @@ async function loadBackendVersion() {
 }
 
 // showUpdateNotice shows what self-update has to say (gui.UpdateStatus):
-// an installed update gets a "Restart now" button. It stays until replaced;
+// an installed update gets a "Restart now" button, and a newer package (for
+// a .deb install, which can't update itself) a "Download" one. It stays until replaced;
 // flash() shows its message over it for a moment.
 function showUpdateNotice(update) {
   state.update = update || { notice: "" };
@@ -230,6 +266,11 @@ function showUpdateNotice(update) {
     el.append(h("button", {
       class: "btn btn-primary btn-sm", type: "button", onclick: restartToUpdate,
     }, icon("refresh-cw"), "Restart now"));
+  } else if (state.update.download) {
+    el.append(h("button", {
+      class: "btn btn-primary btn-sm", type: "button",
+      onclick: () => api.downloadUpdate().catch((err) => showError(errorMessage(err))),
+    }, "Download"));
   }
   el.hidden = !state.update.notice;
 }

@@ -100,3 +100,30 @@ func TestRestartToUpdate(t *testing.T) {
 		t.Error("want the restart error passed on")
 	}
 }
+
+func TestUpdaterOffersPackageDownload(t *testing.T) {
+	host := newFakeHost()
+	svc := &Service{host: host, restart: func() error { return nil }}
+	r := &updaterRun{
+		now: time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC),
+		results: []update.CheckResult{
+			{Available: "v1.4.0", DownloadURL: "https://example.org/lazytrackit-desktop_1.4.0_amd64.deb"},
+			{Installed: true, NewVersion: "v1.4.0"},
+		},
+	}
+	r.start(t, svc, 0, time.Hour)
+	st := svc.State().Update
+	if !st.Download || st.CanRestart || st.Notice == "" {
+		t.Errorf("after an available package: %+v", st)
+	}
+	if err := svc.DownloadUpdate(); err != nil || len(host.opened) != 1 || host.opened[0] != "https://example.org/lazytrackit-desktop_1.4.0_amd64.deb" {
+		t.Errorf("DownloadUpdate: err %v, opened %v", err, host.opened)
+	}
+
+	// Once the package is installed, the next check offers the restart.
+	r.start(t, svc, 0, time.Hour)
+	st = svc.State().Update
+	if st.Download || !st.CanRestart || st.Ready != "v1.4.0" {
+		t.Errorf("after installing the package: %+v", st)
+	}
+}

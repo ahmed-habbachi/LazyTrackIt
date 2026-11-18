@@ -29,6 +29,12 @@ type CheckResult struct {
 	// offline), so trying again soon may work. It's never set together
 	// with Installed or Unwritable.
 	Failed bool
+
+	// Available, for a package-managed install (see PackageManaged), is a
+	// newer release the user has to install themselves, from DownloadURL
+	// (its Debian package).
+	Available   string
+	DownloadURL string
 }
 
 // CheckAndApply checks GitHub for a release newer than currentVersion and, if
@@ -52,6 +58,10 @@ func CheckAndApplyProduct(ctx context.Context, currentVersion string, product Pr
 	if currentVersion == "dev" || currentVersion == "" {
 		logf("skip: running a dev build (%q), nothing to compare against", currentVersion)
 		return CheckResult{}
+	}
+
+	if product.Deb != "" && PackageManaged() {
+		return checkPackage(ctx, currentVersion, product)
 	}
 
 	dir, writable, err := installDirWritable()

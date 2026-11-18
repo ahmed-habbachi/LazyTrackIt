@@ -15,7 +15,7 @@ import (
 // installLauncher adds a "LazyTrackIt" shortcut to the user's Start Menu on
 // the first run, unless one is already there (the installer makes the same
 // one).
-func installLauncher(exe string, firstRun bool) error {
+func installLauncher(exe string, firstRun, _ bool) error {
 	if !firstRun {
 		return nil
 	}
