@@ -186,7 +186,7 @@ func WriteExample() (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, []byte(exampleConfig), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(starterConfig()), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil

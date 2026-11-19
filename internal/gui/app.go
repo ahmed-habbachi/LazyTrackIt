@@ -161,16 +161,26 @@ func startReminder(app *application.App, svc *Service, rn reminderNotifier) {
 // buildService loads the config and providers. Problems that the user has
 // to fix (no config yet, an invalid one) don't stop the app: they're shown
 // in the window instead, since a tray app has no terminal to print to.
+//
+// On the very first run there's no config: a starter one is written and
+// loaded right away. A build with a preset TrackIt provider (see
+// config.Preset) just signs in; otherwise the window greets the user with a
+// (dismissible) welcome pointing them at Settings to fill in their
+// provider, so they never have to restart the app first.
 func buildService(host Host) *Service {
+	welcome := ""
 	cfg, err := config.Load()
-	if err != nil {
-		if os.IsNotExist(err) {
-			path, werr := config.WriteExample()
-			if werr != nil {
-				return NewSetupService(host, fmt.Sprintf("No configuration found, and writing a starter one failed: %v", werr))
-			}
-			return NewSetupService(host, fmt.Sprintf("No configuration found, so a starter config was written to %s. Edit it with your provider details, then restart LazyTrackIt.", path))
+	if err != nil && os.IsNotExist(err) {
+		path, werr := config.WriteExample()
+		if werr != nil {
+			return NewSetupService(host, fmt.Sprintf("No configuration found, and writing a starter one failed: %v", werr))
 		}
+		if !config.Preset() {
+			welcome = fmt.Sprintf("A starter configuration was written to %s. Open Settings to fill in your provider's details (or add another provider) to get started.", path)
+		}
+		cfg, err = config.Load()
+	}
+	if err != nil {
 		return NewSetupService(host, fmt.Sprintf("Couldn't read the configuration: %v", err))
 	}
 
@@ -188,6 +198,7 @@ func buildService(host Host) *Service {
 	}
 	session.RememberActiveProvider()
 	svc := NewService(host, session)
+	svc.welcomeMessage = welcome
 	svc.updatesDisabled = !cfg.UpdatesEnabled()
 	at, on, err := cfg.CheckInReminderTime()
 	if err != nil {

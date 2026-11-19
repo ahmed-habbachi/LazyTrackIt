@@ -16,6 +16,9 @@ type Product struct {
 	// Variant, if set, is appended after the platform in the archive name
 	// (Name_<tag>_<os>_<arch><Variant>.<ext>).
 	Variant string
+	// Deb, if set, is the name of the product's Debian package; an
+	// install from it is updated by installing a newer package.
+	Deb string
 }
 
 var (
@@ -26,7 +29,7 @@ var (
 	// "_<os>_<arch>.<ext>": TUI releases from before per-product updates
 	// pick the first asset with that suffix, and would otherwise grab the
 	// GUI archive and fail to update.
-	GUI = Product{Name: "lazytrackit-gui", Variant: "_desktop"}
+	GUI = Product{Name: "lazytrackit-gui", Variant: "_desktop", Deb: "lazytrackit-desktop"}
 )
 
 // binaryName is the executable's file name inside the release archive.

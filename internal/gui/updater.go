@@ -38,6 +38,12 @@ func runUpdater(ctx context.Context, svc *Service, check updateCheck, wait func(
 			case res.Installed:
 				svc.setUpdateReady(res.NewVersion)
 				return
+			case res.Available != "":
+				// Installed by the package manager: the user installs the
+				// newer package, and a later check sees it on disk
+				// (res.Installed) and offers the restart.
+				svc.setUpdateAvailable(res.Available, res.DownloadURL)
+				next = now().Add(updateRetry)
 			case res.Unwritable != "":
 				svc.setUpdateNotice(fmt.Sprintf("Installed at %s, which you can't write to, so auto-update can't work. Move LazyTrackIt to a folder you own to enable it.", res.Unwritable))
 				return

@@ -23,7 +23,7 @@ func TestLinuxLauncher(t *testing.T) {
 	}
 
 	// First run: entry and icon are written.
-	if err := installLauncher("/home/me/.local/bin/lazytrackit-gui", true); err != nil {
+	if err := installLauncher("/home/me/.local/bin/lazytrackit-gui", true, false); err != nil {
 		t.Fatal(err)
 	}
 	got := read()
@@ -37,7 +37,7 @@ func TestLinuxLauncher(t *testing.T) {
 	}
 
 	// Moved binary: our entry follows it.
-	if err := installLauncher("/opt/My Apps/lazytrackit-gui", false); err != nil {
+	if err := installLauncher("/opt/My Apps/lazytrackit-gui", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(read(), `Exec="/opt/My Apps/lazytrackit-gui"`) {
@@ -46,7 +46,7 @@ func TestLinuxLauncher(t *testing.T) {
 
 	// Deleted by the user: stays deleted.
 	os.Remove(entry)
-	if err := installLauncher("/home/me/.local/bin/lazytrackit-gui", false); err != nil {
+	if err := installLauncher("/home/me/.local/bin/lazytrackit-gui", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if read() != "" {
@@ -56,7 +56,7 @@ func TestLinuxLauncher(t *testing.T) {
 	// Someone else's entry (no marker) is left alone.
 	own := "[Desktop Entry]\nName=Mine\nExec=/usr/bin/lazytrackit-gui\n"
 	os.WriteFile(entry, []byte(own), 0o644)
-	if err := installLauncher("/home/me/.local/bin/lazytrackit-gui", true); err != nil {
+	if err := installLauncher("/home/me/.local/bin/lazytrackit-gui", true, false); err != nil {
 		t.Fatal(err)
 	}
 	if read() != own {
@@ -74,5 +74,41 @@ func TestDesktopQuote(t *testing.T) {
 		if got := desktopQuote(in); got != want {
 			t.Errorf("desktopQuote(%q) = %s, want %s", in, got, want)
 		}
+	}
+}
+
+func TestLinuxLauncherPackaged(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", data)
+	entry := filepath.Join(data, "applications", "lazytrackit.desktop")
+
+	// Installed from the package: nothing is written...
+	if err := installLauncher("/usr/bin/lazytrackit-gui", true, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(entry); !os.IsNotExist(err) {
+		t.Errorf("packaged install wrote an entry (err %v)", err)
+	}
+
+	// ...and one an earlier unpackaged copy wrote is removed, so the
+	// package's own entry shows.
+	if err := installLauncher("/home/me/.local/bin/lazytrackit-gui", true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := installLauncher("/usr/bin/lazytrackit-gui", false, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(entry); !os.IsNotExist(err) {
+		t.Errorf("our old entry wasn't removed (err %v)", err)
+	}
+
+	// Someone else's entry stays.
+	own := "[Desktop Entry]\nName=Mine\n"
+	os.WriteFile(entry, []byte(own), 0o644)
+	if err := installLauncher("/usr/bin/lazytrackit-gui", false, true); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(entry); string(b) != own {
+		t.Errorf("someone else's entry was changed: %q", b)
 	}
 }

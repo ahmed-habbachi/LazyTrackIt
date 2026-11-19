@@ -51,6 +51,9 @@ type Service struct {
 	host         Host
 	session      *service.Session // nil when SetupMessage is set
 	setupMessage string
+	// welcomeMessage greets a first run (a starter config was just
+	// written); unlike setupMessage the app is usable.
+	welcomeMessage string
 	// updatesDisabled mirrors the config's check_for_updates: false.
 	updatesDisabled bool
 	// reminderAt is the config's check_in_reminder (time of day);
@@ -77,6 +80,9 @@ type Service struct {
 
 	updateNotice string
 	updateReady  string // version installed and waiting for a restart
+	// updateDownload is where to download a newer package from, for an
+	// install the package manager owns (see update.PackageManaged).
+	updateDownload string
 
 	// restart starts the installed update and quits; nil in tests and
 	// when the executable's path couldn't be found.
@@ -122,12 +128,12 @@ func (s *Service) scope() (service.Scope, error) {
 
 // State returns the app-level status.
 func (s *Service) State() State {
-	st := State{Version: version.Version, SetupMessage: s.setupMessage}
+	st := State{Version: version.Version, SetupMessage: s.setupMessage, Welcome: s.welcomeMessage}
 	if on, err := s.host.AutostartEnabled(); err == nil {
 		st.Autostart = on
 	}
 	s.mu.Lock()
-	st.Update = UpdateStatus{Notice: s.updateNotice, Ready: s.updateReady, CanRestart: s.restart != nil}
+	st.Update = s.updateStatusLocked()
 	s.mu.Unlock()
 	if s.session == nil {
 		return st
@@ -592,7 +598,8 @@ func (s *Service) publishAttendance(open *provider.AttendanceSession, enabled bo
 func (s *Service) setUpdateNotice(notice string) {
 	s.mu.Lock()
 	s.updateNotice = notice
-	st := UpdateStatus{Notice: notice, Ready: s.updateReady}
+	s.updateDownload = ""
+	st := s.updateStatusLocked()
 	s.mu.Unlock()
 	s.host.Emit(EventUpdate, st)
 }
@@ -603,13 +610,49 @@ func (s *Service) setUpdateReady(version string) {
 	s.mu.Lock()
 	s.updateReady = version
 	s.updateNotice = fmt.Sprintf("LazyTrackIt %s is installed. Restart to start using it.", version)
-	st := UpdateStatus{Notice: s.updateNotice, Ready: version, CanRestart: s.restart != nil}
+	s.updateDownload = ""
+	st := s.updateStatusLocked()
 	hook := s.onUpdateReady
 	s.mu.Unlock()
 	s.host.Emit(EventUpdate, st)
 	if hook != nil && st.CanRestart {
 		hook(version)
 	}
+}
+
+// setUpdateAvailable records that version can be downloaded from url (a
+// package the user installs themselves), and tells the frontend (which
+// offers "Download").
+func (s *Service) setUpdateAvailable(version, url string) {
+	s.mu.Lock()
+	s.updateNotice = fmt.Sprintf("LazyTrackIt %s is available. Download it and open the file to install the update.", version)
+	s.updateDownload = url
+	st := s.updateStatusLocked()
+	s.mu.Unlock()
+	s.host.Emit(EventUpdate, st)
+}
+
+// updateStatusLocked is what the window shows about self-update. s.mu must
+// be held.
+func (s *Service) updateStatusLocked() UpdateStatus {
+	return UpdateStatus{
+		Notice:     s.updateNotice,
+		Ready:      s.updateReady,
+		CanRestart: s.updateReady != "" && s.restart != nil,
+		Download:   s.updateDownload != "",
+	}
+}
+
+// DownloadUpdate opens the newer package's download in the browser.
+func (s *Service) DownloadUpdate() error {
+	s.mu.Lock()
+	url := s.updateDownload
+	s.mu.Unlock()
+	if url == "" {
+		return errors.New("no update to download")
+	}
+	s.host.OpenURL(url)
+	return nil
 }
 
 // RestartToUpdate starts the installed update and quits this instance.

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=LazyTrackIt
+GenericName=Time tracking
+Comment=Log your work time and check in or out
+Exec=lazytrackit-gui
+Icon=lazytrackit
+Terminal=false
+Categories=Office;ProjectManagement;
+Keywords=time;tracking;timesheet;trackit;
+StartupWMClass=lazytrackit-gui

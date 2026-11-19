@@ -18,6 +18,7 @@ const dateLayout = "2006-01-02"
 type State struct {
 	Version      string       `json:"version"`
 	SetupMessage string       `json:"setupMessage"` // non-empty: no usable config yet
+	Welcome      string       `json:"welcome"`      // non-empty: first run, a starter config was written
 	Providers    []string     `json:"providers"`
 	Active       string       `json:"active"`
 	NeedsLogin   bool         `json:"needsLogin"`
@@ -33,6 +34,7 @@ type UpdateStatus struct {
 	Notice     string `json:"notice"`     // empty: nothing to show
 	Ready      string `json:"ready"`      // installed version awaiting a restart
 	CanRestart bool   `json:"canRestart"` // "Restart now" can work
+	Download   bool   `json:"download"`   // a newer package can be downloaded (DownloadUpdate)
 }
 
 // Project is a provider.Project for the frontend.

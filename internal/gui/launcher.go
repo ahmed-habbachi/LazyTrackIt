@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/ahmed-habbachi/lazytrackit/internal/config"
+	"github.com/ahmed-habbachi/lazytrackit/internal/update"
 	"github.com/ahmed-habbachi/lazytrackit/internal/version"
 )
 
@@ -30,11 +31,14 @@ func ensureLauncher(exe string) {
 	marker := filepath.Join(dir, launcherMarker)
 	_, statErr := os.Stat(marker)
 	firstRun := statErr != nil
-	if err := installLauncher(exe, firstRun); err != nil {
+	packaged := update.PackageManaged()
+	if err := installLauncher(exe, firstRun, packaged); err != nil {
 		fmt.Fprintln(os.Stderr, "lazytrackit-gui: adding the app launcher entry:", err)
 		return
 	}
-	if firstRun {
+	// A package's entry isn't ours: leave the marker for a copy that
+	// does write one (e.g. if the package is swapped for the tar.gz).
+	if firstRun && !packaged {
 		_ = os.MkdirAll(dir, 0o700)
 		_ = os.WriteFile(marker, []byte("The app added its launcher entry; delete this file to have it added again.\n"), 0o600)
 	}
